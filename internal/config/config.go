@@ -16,6 +16,7 @@ type Config struct {
 	Auth         AuthConfig
 	OAuth        OAuthConfig
 	TenantConfig TenantConfig
+	AI           AIConfig
 		Jobx JobxConfig
 		Notifx NotifxConfig
 	// manifesto:config-fields
@@ -60,6 +61,7 @@ func Load() (*Config, error) {
 		Auth:         loadAuthConfig(),
 		OAuth:        loadOAuthConfig(),
 		TenantConfig: loadTenantConfig(),
+		AI:           loadAIConfig(),
 	}
 
 	if err := cfg.Validate(); err != nil {

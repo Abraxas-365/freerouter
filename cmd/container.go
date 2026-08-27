@@ -16,6 +16,7 @@ import (
 		awsConfig "github.com/aws/aws-sdk-go-v2/config"
 		"github.com/aws/aws-sdk-go-v2/service/s3"
 		"github.com/Abraxas-365/freerouter/internal/iam/iamcontainer"
+		"github.com/Abraxas-365/freerouter/internal/ai/aicontainer"
 		"github.com/Abraxas-365/freerouter/internal/kernel"
 		"github.com/Abraxas-365/freerouter/internal/jobx"
 		"github.com/Abraxas-365/freerouter/internal/jobx/jobxredis"
@@ -38,6 +39,7 @@ type Container struct {
 		FileSystem fsx.FileSystem
 	S3Client   *s3.Client
 		IAM *iamcontainer.Container
+		AI  *aicontainer.Container
 		JobClient *jobx.Client
 		NotifxClient *notifx.Client
 	// manifesto:container-fields
@@ -113,6 +115,11 @@ func (c *Container) initModules() {
 		InvitationNotifier: NewConsoleInvitationNotifier(),
 	})
 
+	c.AI = aicontainer.New(aicontainer.Deps{
+		DB:  c.DB,
+		Cfg: c.Config,
+	})
+
 		c.initJobx()
 
 		c.initNotifx()
@@ -133,6 +140,10 @@ func (c *Container) StartBackgroundServices(ctx context.Context) {
 
 func (c *Container) Cleanup() {
 	logx.Info("Cleaning up resources...")
+
+	if c.AI != nil {
+		c.AI.Close()
+	}
 
 	if c.DB != nil {
 		if err := c.DB.Close(); err != nil {

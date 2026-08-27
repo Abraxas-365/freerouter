@@ -170,6 +170,23 @@ func registerRoutes(app *fiber.App, container *Container) {
 	container.IAM.TenantHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > Tenant routes registered")
 
+	// AI Routes
+	container.AI.Provider.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  > Provider routes registered")
+
+	container.AI.ProviderKey.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  > Provider key routes registered")
+
+	container.AI.Usage.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  > Usage routes registered")
+
+	container.AI.Billing.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  > Billing routes registered")
+
+	// Gateway (on root, not under /api/v1 — OpenAI-compatible /v1/chat/completions)
+	container.AI.Gateway.Handlers.RegisterRoutes(app, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  > Gateway routes registered")
+
 	// manifesto:route-registration
 
 	logx.Info("All routes registered")
