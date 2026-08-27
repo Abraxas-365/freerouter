@@ -1,10 +1,10 @@
 package billingcontainer
 
 import (
-	"github.com/Abraxas-365/freerouter/internal/ai/billing"
-	"github.com/Abraxas-365/freerouter/internal/ai/billing/billingapi"
-	"github.com/Abraxas-365/freerouter/internal/ai/billing/billinginfra"
-	"github.com/Abraxas-365/freerouter/internal/ai/billing/billingsrv"
+	"github.com/Abraxas-365/freerouter/internal/billing"
+	"github.com/Abraxas-365/freerouter/internal/billing/billingapi"
+	"github.com/Abraxas-365/freerouter/internal/billing/billinginfra"
+	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/jmoiron/sqlx"
 )
 

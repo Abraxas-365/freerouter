@@ -17,6 +17,7 @@ import (
 		"github.com/aws/aws-sdk-go-v2/service/s3"
 		"github.com/Abraxas-365/freerouter/internal/iam/iamcontainer"
 		"github.com/Abraxas-365/freerouter/internal/ai/aicontainer"
+		"github.com/Abraxas-365/freerouter/internal/billing/billingcontainer"
 		"github.com/Abraxas-365/freerouter/internal/kernel"
 		"github.com/Abraxas-365/freerouter/internal/jobx"
 		"github.com/Abraxas-365/freerouter/internal/jobx/jobxredis"
@@ -40,6 +41,7 @@ type Container struct {
 	S3Client   *s3.Client
 		IAM *iamcontainer.Container
 		AI  *aicontainer.Container
+		Billing *billingcontainer.Container
 		JobClient *jobx.Client
 		NotifxClient *notifx.Client
 	// manifesto:container-fields
@@ -115,9 +117,12 @@ func (c *Container) initModules() {
 		InvitationNotifier: NewConsoleInvitationNotifier(),
 	})
 
+	c.Billing = billingcontainer.New(c.DB)
+
 	c.AI = aicontainer.New(aicontainer.Deps{
-		DB:  c.DB,
-		Cfg: c.Config,
+		DB:          c.DB,
+		Cfg:         c.Config,
+		BillingRepo: c.Billing.Repo,
 	})
 
 		c.initJobx()

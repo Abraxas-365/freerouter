@@ -1,7 +1,7 @@
 package gatewaycontainer
 
 import (
-	"github.com/Abraxas-365/freerouter/internal/ai/billing"
+	"github.com/Abraxas-365/freerouter/internal/billing"
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway"
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway/gatewayapi"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"

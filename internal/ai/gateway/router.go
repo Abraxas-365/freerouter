@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Abraxas-365/freerouter/internal/ai/billing"
+	"github.com/Abraxas-365/freerouter/internal/billing"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey"
 	"github.com/Abraxas-365/freerouter/internal/errx"

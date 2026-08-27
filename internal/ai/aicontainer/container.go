@@ -1,20 +1,21 @@
 package aicontainer
 
 import (
-	"github.com/Abraxas-365/freerouter/internal/ai/billing/billingcontainer"
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway/gatewaycontainer"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider/providercontainer"
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey/providerkeycontainer"
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey/providerkeyinfra"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagecontainer"
+	"github.com/Abraxas-365/freerouter/internal/billing"
 	"github.com/Abraxas-365/freerouter/internal/config"
 	"github.com/Abraxas-365/freerouter/internal/logx"
 	"github.com/jmoiron/sqlx"
 )
 
 type Deps struct {
-	DB  *sqlx.DB
-	Cfg *config.Config
+	DB          *sqlx.DB
+	Cfg         *config.Config
+	BillingRepo billing.BillingRepository
 }
 
 type Container struct {
@@ -22,7 +23,6 @@ type Container struct {
 	ProviderKey *providerkeycontainer.Container
 	Gateway     *gatewaycontainer.Container
 	Usage       *usagecontainer.Container
-	Billing     *billingcontainer.Container
 }
 
 func New(deps Deps) *Container {
@@ -44,22 +44,18 @@ func New(deps Deps) *Container {
 	c.ProviderKey = providerkeycontainer.New(deps.DB, c.Provider.ProviderRepo, encryptor)
 	logx.Info("  Provider key management initialized")
 
-	// 4. Billing (no deps on other AI modules)
-	c.Billing = billingcontainer.New(deps.DB)
-	logx.Info("  Billing initialized")
-
-	// 5. Usage logging (no deps on other AI modules)
+	// 4. Usage logging (no deps on other AI modules)
 	c.Usage = usagecontainer.New(deps.DB, deps.Cfg.AI.UsageBufferSize)
 	logx.Info("  Usage logging initialized")
 
-	// 6. Gateway (depends on provider, providerkey, billing, usage)
+	// 5. Gateway (depends on provider, providerkey, billing, usage)
 	c.Gateway = gatewaycontainer.New(gatewaycontainer.Deps{
 		ModelRepo:    c.Provider.ModelRepo,
 		MappingRepo:  c.Provider.MappingRepo,
 		ProviderRepo: c.Provider.ProviderRepo,
 		KeyRepo:      c.ProviderKey.KeyRepo,
 		Encryptor:    c.ProviderKey.Encryptor,
-		BillingRepo:  c.Billing.Repo,
+		BillingRepo:  deps.BillingRepo,
 		UsageService: c.Usage.Service,
 	})
 	logx.Info("  Gateway initialized")

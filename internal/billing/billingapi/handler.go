@@ -3,8 +3,8 @@ package billingapi
 import (
 	"time"
 
-	"github.com/Abraxas-365/freerouter/internal/ai/billing"
-	"github.com/Abraxas-365/freerouter/internal/ai/billing/billingsrv"
+	"github.com/Abraxas-365/freerouter/internal/billing"
+	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"

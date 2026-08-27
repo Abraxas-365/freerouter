@@ -180,7 +180,7 @@ func registerRoutes(app *fiber.App, container *Container) {
 	container.AI.Usage.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > Usage routes registered")
 
-	container.AI.Billing.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	container.Billing.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > Billing routes registered")
 
 	// Gateway (on root, not under /api/v1 — OpenAI-compatible /v1/chat/completions)

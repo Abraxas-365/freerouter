@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Abraxas-365/freerouter/internal/ai/billing"
+	"github.com/Abraxas-365/freerouter/internal/billing"
 	"github.com/Abraxas-365/freerouter/internal/errx"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 )
