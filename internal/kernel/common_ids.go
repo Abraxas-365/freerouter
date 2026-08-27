@@ -29,3 +29,9 @@ type MappingID string
 func NewMappingID(id string) MappingID { return MappingID(id) }
 func (m MappingID) String() string     { return string(m) }
 func (m MappingID) IsEmpty() bool      { return string(m) == "" }
+
+type ProviderKeyID string
+
+func NewProviderKeyID(id string) ProviderKeyID { return ProviderKeyID(id) }
+func (p ProviderKeyID) String() string         { return string(p) }
+func (p ProviderKeyID) IsEmpty() bool          { return string(p) == "" }
