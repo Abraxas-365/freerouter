@@ -35,3 +35,9 @@ type ProviderKeyID string
 func NewProviderKeyID(id string) ProviderKeyID { return ProviderKeyID(id) }
 func (p ProviderKeyID) String() string         { return string(p) }
 func (p ProviderKeyID) IsEmpty() bool          { return string(p) == "" }
+
+type UsageLogID string
+
+func NewUsageLogID(id string) UsageLogID { return UsageLogID(id) }
+func (u UsageLogID) String() string      { return string(u) }
+func (u UsageLogID) IsEmpty() bool       { return string(u) == "" }
