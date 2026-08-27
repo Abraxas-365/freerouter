@@ -2,13 +2,16 @@ package gatewayapi
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagesrv"
+	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"
@@ -18,13 +21,15 @@ type GatewayHandlers struct {
 	router   *gateway.Router
 	upstream *gateway.Upstream
 	usage    *usagesrv.UsageService
+	billing  *billingsrv.BillingService
 }
 
-func NewGatewayHandlers(router *gateway.Router, upstream *gateway.Upstream, usage *usagesrv.UsageService) *GatewayHandlers {
+func NewGatewayHandlers(router *gateway.Router, upstream *gateway.Upstream, usage *usagesrv.UsageService, billing *billingsrv.BillingService) *GatewayHandlers {
 	return &GatewayHandlers{
 		router:   router,
 		upstream: upstream,
 		usage:    usage,
+		billing:  billing,
 	}
 }
 
@@ -52,7 +57,7 @@ func (h *GatewayHandlers) ChatCompletions(c *fiber.Ctx) error {
 
 	// Route: resolve model -> provider -> credential
 	tenantID := &authCtx.TenantID
-	route, err := h.router.Resolve(c.Context(), req.Model, tenantID)
+	route, err := h.router.Resolve(c.Context(), req.Model, tenantID, req.MaxTokens)
 	if err != nil {
 		return err
 	}
@@ -80,6 +85,14 @@ func (h *GatewayHandlers) handleNonStream(c *fiber.Ctx, route *gateway.RouteResu
 	if err != nil {
 		h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
 		return err
+	}
+
+	// Debit tenant balance for token usage
+	cost := calculateCost(route, resp)
+	if cost > 0 {
+		if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
+			slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+		}
 	}
 
 	h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
@@ -128,8 +141,34 @@ func (h *GatewayHandlers) handleStream(c *fiber.Ctx, route *gateway.RouteResult,
 			w.Flush()
 		}
 
+		// Debit tenant balance for token usage
+		cost := calculateCost(route, resp)
+		if cost > 0 {
+			debitCtx, debitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer debitCancel()
+			if _, err := h.billing.DebitUsage(debitCtx, tenantID, cost, ""); err != nil {
+				slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+			}
+		}
+
 		h.usage.LogRequest(tenantID, route, requestedModel, resp, statusCode, duration, true, streamErr)
 	})
 
 	return nil
+}
+
+// calculateCost computes the total cost in USD for a request based on token
+// counts and the mapping's per-million-token pricing.
+func calculateCost(route *gateway.RouteResult, resp *gateway.ChatResponse) float64 {
+	if resp == nil || resp.Usage == nil {
+		return 0
+	}
+	var cost float64
+	if route.InputPrice != nil {
+		cost += float64(resp.Usage.PromptTokens) * *route.InputPrice / 1_000_000
+	}
+	if route.OutputPrice != nil {
+		cost += float64(resp.Usage.CompletionTokens) * *route.OutputPrice / 1_000_000
+	}
+	return cost
 }

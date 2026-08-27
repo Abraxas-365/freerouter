@@ -2,6 +2,7 @@ package gatewaycontainer
 
 import (
 	"github.com/Abraxas-365/freerouter/internal/billing"
+	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway"
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway/gatewayapi"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"
@@ -10,13 +11,14 @@ import (
 )
 
 type Deps struct {
-	ModelRepo    provider.ModelRepository
-	MappingRepo  provider.MappingRepository
-	ProviderRepo provider.ProviderRepository
-	KeyRepo      providerkey.ProviderKeyRepository
-	Encryptor    providerkey.TokenEncryptor
-	BillingRepo  billing.BillingRepository
-	UsageService *usagesrv.UsageService
+	ModelRepo      provider.ModelRepository
+	MappingRepo    provider.MappingRepository
+	ProviderRepo   provider.ProviderRepository
+	KeyRepo        providerkey.ProviderKeyRepository
+	Encryptor      providerkey.TokenEncryptor
+	BillingRepo    billing.BillingRepository
+	BillingService *billingsrv.BillingService
+	UsageService   *usagesrv.UsageService
 }
 
 type Container struct {
@@ -35,7 +37,7 @@ func New(deps Deps) *Container {
 		deps.BillingRepo,
 	)
 	upstream := gateway.NewUpstream()
-	handlers := gatewayapi.NewGatewayHandlers(router, upstream, deps.UsageService)
+	handlers := gatewayapi.NewGatewayHandlers(router, upstream, deps.UsageService, deps.BillingService)
 
 	return &Container{
 		Router:   router,

@@ -120,9 +120,10 @@ func (c *Container) initModules() {
 	c.Billing = billingcontainer.New(c.DB)
 
 	c.AI = aicontainer.New(aicontainer.Deps{
-		DB:          c.DB,
-		Cfg:         c.Config,
-		BillingRepo: c.Billing.Repo,
+		DB:             c.DB,
+		Cfg:            c.Config,
+		BillingRepo:    c.Billing.Repo,
+		BillingService: c.Billing.Service,
 	})
 
 		c.initJobx()

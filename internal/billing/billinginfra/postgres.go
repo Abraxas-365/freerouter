@@ -88,11 +88,12 @@ func (r *PostgresBillingRepository) Debit(ctx context.Context, tenantID kernel.T
 	}
 	defer tx.Rollback()
 
-	// Lock and debit atomically, fail if insufficient
+	// Lock and debit atomically — allows negative balance so usage is always
+	// recorded. The next request will be rejected by the pre-check in the router.
 	debitQuery := `
 		UPDATE tenant_balances
 		SET balance = balance - $2, updated_at = $3
-		WHERE tenant_id = $1 AND balance >= $2
+		WHERE tenant_id = $1
 		RETURNING tenant_id, balance, updated_at`
 
 	now := time.Now().UTC()
@@ -100,9 +101,17 @@ func (r *PostgresBillingRepository) Debit(ctx context.Context, tenantID kernel.T
 	err = tx.GetContext(ctx, &balance, debitQuery, tenantID.String(), amount, now)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil, billing.ErrInsufficientBalance()
+			// No balance row — init with negative balance
+			initQuery := `
+				INSERT INTO tenant_balances (tenant_id, balance, updated_at)
+				VALUES ($1, -$2, $3)
+				RETURNING tenant_id, balance, updated_at`
+			if err := tx.GetContext(ctx, &balance, initQuery, tenantID.String(), amount, now); err != nil {
+				return nil, nil, errx.Wrap(err, "failed to init debit balance", errx.TypeInternal)
+			}
+		} else {
+			return nil, nil, errx.Wrap(err, "failed to debit balance", errx.TypeInternal)
 		}
-		return nil, nil, errx.Wrap(err, "failed to debit balance", errx.TypeInternal)
 	}
 
 	// Record transaction (negative amount for debits)

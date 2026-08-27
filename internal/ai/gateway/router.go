@@ -41,18 +41,8 @@ func NewRouter(
 
 // Resolve finds the best provider + credential for the requested model.
 // It returns a RouteResult with all the info needed to make the upstream call.
-func (r *Router) Resolve(ctx context.Context, modelID string, tenantID *kernel.TenantID) (*RouteResult, error) {
-	// 0. Check tenant has credits (skip for BYOK-only tenants in the future)
-	if tenantID != nil && !tenantID.IsEmpty() {
-		balance, err := r.billingRepo.GetBalance(ctx, *tenantID)
-		if err != nil {
-			return nil, errx.Wrap(err, "failed to check balance", errx.TypeInternal)
-		}
-		if balance.Balance <= 0 {
-			return nil, billing.ErrInsufficientBalance()
-		}
-	}
-
+// maxTokens is the client's requested max output tokens (used for cost estimation).
+func (r *Router) Resolve(ctx context.Context, modelID string, tenantID *kernel.TenantID, maxTokens *int) (*RouteResult, error) {
 	// 1. Find the model
 	model, err := r.modelRepo.FindByID(ctx, kernel.NewModelID(modelID))
 	if err != nil {
@@ -80,7 +70,35 @@ func (r *Router) Resolve(ctx context.Context, modelID string, tenantID *kernel.T
 		).WithDetail("model", modelID)
 	}
 
-	// 3. Try each mapping until we find one with an available credential
+	// 3. Pre-check: estimate max cost from the cheapest mapping and reject if
+	//    the tenant can't afford even one request. Uses output_price * max_tokens
+	//    as a conservative estimate (output tokens are the expensive part).
+	if tenantID != nil && !tenantID.IsEmpty() {
+		balance, err := r.billingRepo.GetBalance(ctx, *tenantID)
+		if err != nil {
+			return nil, errx.Wrap(err, "failed to check balance", errx.TypeInternal)
+		}
+		if balance.Balance <= 0 {
+			return nil, billing.ErrInsufficientBalance().
+				WithDetail("balance", fmt.Sprintf("%.6f", balance.Balance))
+		}
+
+		// Estimate cost if we have pricing info
+		estimatedTokens := 4096
+		if maxTokens != nil && *maxTokens > 0 {
+			estimatedTokens = *maxTokens
+		}
+		if bestPrice := cheapestOutputPrice(mappings); bestPrice > 0 {
+			estimatedCost := float64(estimatedTokens) * bestPrice / 1_000_000
+			if balance.Balance < estimatedCost {
+				return nil, billing.ErrInsufficientBalance().
+					WithDetail("balance", fmt.Sprintf("%.6f", balance.Balance)).
+					WithDetail("estimated_cost", fmt.Sprintf("%.6f", estimatedCost))
+			}
+		}
+	}
+
+	// 4. Try each mapping until we find one with an available credential
 	for _, mapping := range mappings {
 		// Check provider is active
 		prov, err := r.providerRepo.FindByID(ctx, mapping.ProviderID)
@@ -151,6 +169,19 @@ func (r *Router) resolveCredential(ctx context.Context, providerID kernel.Provid
 	}
 
 	return nil, fmt.Errorf("no credential found for provider %s", providerID)
+}
+
+// cheapestOutputPrice returns the lowest output price from a set of mappings.
+func cheapestOutputPrice(mappings []*provider.ModelProviderMapping) float64 {
+	var best float64
+	for _, m := range mappings {
+		if m.OutputPrice != nil {
+			if best == 0 || *m.OutputPrice < best {
+				best = *m.OutputPrice
+			}
+		}
+	}
+	return best
 }
 
 // defaultBaseURL returns the default API base URL for known providers.

@@ -7,15 +7,17 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey/providerkeyinfra"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagecontainer"
 	"github.com/Abraxas-365/freerouter/internal/billing"
+	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/config"
 	"github.com/Abraxas-365/freerouter/internal/logx"
 	"github.com/jmoiron/sqlx"
 )
 
 type Deps struct {
-	DB          *sqlx.DB
-	Cfg         *config.Config
-	BillingRepo billing.BillingRepository
+	DB             *sqlx.DB
+	Cfg            *config.Config
+	BillingRepo    billing.BillingRepository
+	BillingService *billingsrv.BillingService
 }
 
 type Container struct {
@@ -50,13 +52,14 @@ func New(deps Deps) *Container {
 
 	// 5. Gateway (depends on provider, providerkey, billing, usage)
 	c.Gateway = gatewaycontainer.New(gatewaycontainer.Deps{
-		ModelRepo:    c.Provider.ModelRepo,
-		MappingRepo:  c.Provider.MappingRepo,
-		ProviderRepo: c.Provider.ProviderRepo,
-		KeyRepo:      c.ProviderKey.KeyRepo,
-		Encryptor:    c.ProviderKey.Encryptor,
-		BillingRepo:  deps.BillingRepo,
-		UsageService: c.Usage.Service,
+		ModelRepo:      c.Provider.ModelRepo,
+		MappingRepo:    c.Provider.MappingRepo,
+		ProviderRepo:   c.Provider.ProviderRepo,
+		KeyRepo:        c.ProviderKey.KeyRepo,
+		Encryptor:      c.ProviderKey.Encryptor,
+		BillingRepo:    deps.BillingRepo,
+		BillingService: deps.BillingService,
+		UsageService:   c.Usage.Service,
 	})
 	logx.Info("  Gateway initialized")
 
