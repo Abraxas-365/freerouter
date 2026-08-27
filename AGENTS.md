@@ -95,7 +95,7 @@ Makefile            -> Dev commands, Docker, DB operations
 <!-- AGENTS-GENERATED:START heuristics -->
 | When | Do |
 |------|-----|
-| New domain entity | Create `entity.go` (struct + DTOs + errx registry), `port.go` (repo interface), `*srv/service.go`, `*infra/postgres.go`, `*api/handler.go`. Use typed IDs from `kernel/common_ids.go`, never raw `string` |
+| New domain entity | Create `entity.go` (struct + DTOs + errx registry), `port.go` (repo interface), `*srv/service.go`, `*infra/postgres.go`, `*api/handler.go`. Use typed IDs from `kernel/common_ids.go`, never raw `string`. IDs are auto-generated UUIDs in the service layer, never part of create requests |
 | New error code | Add to the module's `errx.NewRegistry`, not a shared file |
 | Need pagination | Use `kernel.Paginated[T]` and `kernel.PaginationOptions` |
 | New API route | Add to handler's `RegisterRoutes`, use scope middleware |
@@ -145,6 +145,7 @@ Makefile            -> Dev commands, Docker, DB operations
 ### Never Do
 - Commit secrets, credentials, or sensitive data
 - Use raw `string` for entity IDs -- always use typed IDs from `internal/kernel/common_ids.go` (e.g. `kernel.ProviderID`, `kernel.ModelID`); add new ID types there when needed
+- Include `ID` fields in create request structs -- IDs are always auto-generated UUIDs in the service layer
 - Add subscription plans, trial periods, or SaaS billing tiers -- this is a pay-per-token platform
 - Delete or edit `manifesto:` code-gen markers
 - Edit existing migration files (create new ones instead)
