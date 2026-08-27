@@ -78,7 +78,7 @@ Makefile            -> Dev commands, Docker, DB operations
 |------|-----|----------|
 | Parse + validate request body | `kernel.BindAndValidate[T](c)` | `internal/kernel/bind.go` |
 | Paginated response | `kernel.Paginated[T]`, `kernel.NewPaginated(...)` | `internal/kernel/store.go` |
-| Typed IDs | `kernel.UserID`, `kernel.TenantID` | `internal/kernel/common_ids.go` |
+| Typed IDs | `kernel.UserID`, `kernel.TenantID`, `kernel.ProviderID`, `kernel.ModelID`, `kernel.MappingID` | `internal/kernel/common_ids.go` |
 | Auth context from request | `auth.GetAuthContext(c)` | `internal/iam/auth/` |
 | Scope checking | `kernel.ScopesContain(scopes, required)` | `internal/kernel/context.go` |
 | Module error codes | `errx.NewRegistry("PREFIX")` then `.Register(...)` | `internal/errx/regestry.go` |
@@ -95,7 +95,7 @@ Makefile            -> Dev commands, Docker, DB operations
 <!-- AGENTS-GENERATED:START heuristics -->
 | When | Do |
 |------|-----|
-| New domain entity | Create `entity.go` (struct + DTOs + errx registry), `port.go` (repo interface), `*srv/service.go`, `*infra/postgres.go`, `*api/handler.go` |
+| New domain entity | Create `entity.go` (struct + DTOs + errx registry), `port.go` (repo interface), `*srv/service.go`, `*infra/postgres.go`, `*api/handler.go`. Use typed IDs from `kernel/common_ids.go`, never raw `string` |
 | New error code | Add to the module's `errx.NewRegistry`, not a shared file |
 | Need pagination | Use `kernel.Paginated[T]` and `kernel.PaginationOptions` |
 | New API route | Add to handler's `RegisterRoutes`, use scope middleware |
@@ -143,6 +143,7 @@ Makefile            -> Dev commands, Docker, DB operations
 
 ### Never Do
 - Commit secrets, credentials, or sensitive data
+- Use raw `string` for entity IDs -- always use typed IDs from `internal/kernel/common_ids.go` (e.g. `kernel.ProviderID`, `kernel.ModelID`); add new ID types there when needed
 - Delete or edit `manifesto:` code-gen markers
 - Edit existing migration files (create new ones instead)
 - Push directly to main/master branch
