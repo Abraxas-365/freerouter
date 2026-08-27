@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway"
+	"github.com/Abraxas-365/freerouter/internal/ai/provider"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagesrv"
 	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
@@ -18,24 +19,59 @@ import (
 )
 
 type GatewayHandlers struct {
-	router   *gateway.Router
-	upstream *gateway.Upstream
-	usage    *usagesrv.UsageService
-	billing  *billingsrv.BillingService
+	router      *gateway.Router
+	upstream    *gateway.Upstream
+	usage       *usagesrv.UsageService
+	billing     *billingsrv.BillingService
+	modelRepo   provider.ModelRepository
+	mappingRepo provider.MappingRepository
 }
 
-func NewGatewayHandlers(router *gateway.Router, upstream *gateway.Upstream, usage *usagesrv.UsageService, billing *billingsrv.BillingService) *GatewayHandlers {
+func NewGatewayHandlers(router *gateway.Router, upstream *gateway.Upstream, usage *usagesrv.UsageService, billing *billingsrv.BillingService, modelRepo provider.ModelRepository, mappingRepo provider.MappingRepository) *GatewayHandlers {
 	return &GatewayHandlers{
-		router:   router,
-		upstream: upstream,
-		usage:    usage,
-		billing:  billing,
+		router:      router,
+		upstream:    upstream,
+		usage:       usage,
+		billing:     billing,
+		modelRepo:   modelRepo,
+		mappingRepo: mappingRepo,
 	}
 }
 
 func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	v1 := router.Group("/v1", authMiddleware.Authenticate())
+	v1.Get("/models", authMiddleware.RequireScope("gateway:read"), h.ListModels)
 	v1.Post("/chat/completions", authMiddleware.RequireScope("gateway:chat"), h.ChatCompletions)
+}
+
+// ListModels returns all active models in OpenAI-compatible format.
+func (h *GatewayHandlers) ListModels(c *fiber.Ctx) error {
+	models, err := h.modelRepo.FindActive(c.Context())
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to list models")
+	}
+
+	type openAIModel struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		OwnedBy string `json:"owned_by"`
+	}
+
+	data := make([]openAIModel, 0, len(models))
+	for _, m := range models {
+		data = append(data, openAIModel{
+			ID:      m.ID.String(),
+			Object:  "model",
+			Created: m.CreatedAt.Unix(),
+			OwnedBy: m.Family,
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"object": "list",
+		"data":   data,
+	})
 }
 
 func (h *GatewayHandlers) ChatCompletions(c *fiber.Ctx) error {

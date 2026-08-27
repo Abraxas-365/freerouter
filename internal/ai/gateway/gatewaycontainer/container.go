@@ -37,7 +37,7 @@ func New(deps Deps) *Container {
 		deps.BillingRepo,
 	)
 	upstream := gateway.NewUpstream()
-	handlers := gatewayapi.NewGatewayHandlers(router, upstream, deps.UsageService, deps.BillingService)
+	handlers := gatewayapi.NewGatewayHandlers(router, upstream, deps.UsageService, deps.BillingService, deps.ModelRepo, deps.MappingRepo)
 
 	return &Container{
 		Router:   router,
