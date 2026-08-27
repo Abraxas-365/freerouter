@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,7 +31,16 @@ type StreamCallback func(chunk []byte) error
 
 // Call makes a non-streaming request to the upstream provider
 func (u *Upstream) Call(ctx context.Context, route *RouteResult, body []byte) (*ChatResponse, int, error) {
-	req, err := u.buildRequest(ctx, route, body)
+	translator := GetTranslator(route.ProviderID.String())
+
+	// Transform request to provider-native format
+	providerBody, err := translator.TransformRequest(body, route.ExternalID)
+	if err != nil {
+		return nil, 0, errx.Wrap(err, "failed to transform request", errx.TypeInternal).
+			WithDetail("provider", route.ProviderID)
+	}
+
+	req, err := u.buildRequest(ctx, route, providerBody, false)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -57,17 +65,27 @@ func (u *Upstream) Call(ctx context.Context, route *RouteResult, body []byte) (*
 			WithDetail("status", fmt.Sprintf("%d", resp.StatusCode))
 	}
 
-	var chatResp ChatResponse
-	if err := json.Unmarshal(respBody, &chatResp); err != nil {
-		return nil, resp.StatusCode, errx.Wrap(err, "failed to decode upstream response", errx.TypeInternal)
+	// Transform response from provider-native to OpenAI format
+	chatResp, err := translator.TransformResponse(respBody)
+	if err != nil {
+		return nil, resp.StatusCode, errx.Wrap(err, "failed to transform upstream response", errx.TypeInternal)
 	}
 
-	return &chatResp, resp.StatusCode, nil
+	return chatResp, resp.StatusCode, nil
 }
 
 // Stream makes a streaming request and calls the callback for each SSE data line
 func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, onChunk StreamCallback) error {
-	req, err := u.buildRequest(ctx, route, body)
+	translator := GetTranslator(route.ProviderID.String())
+
+	// Transform request to provider-native format
+	providerBody, err := translator.TransformRequest(body, route.ExternalID)
+	if err != nil {
+		return errx.Wrap(err, "failed to transform request", errx.TypeInternal).
+			WithDetail("provider", route.ProviderID)
+	}
+
+	req, err := u.buildRequest(ctx, route, providerBody, true)
 	if err != nil {
 		return err
 	}
@@ -104,12 +122,22 @@ func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, 
 		if bytes.HasPrefix(line, []byte("data: ")) {
 			data := bytes.TrimPrefix(line, []byte("data: "))
 
-			// Check for stream termination
-			if string(data) == "[DONE]" {
+			// Transform the event through the translator
+			transformed, done, err := translator.TransformStreamEvent(data)
+			if err != nil {
+				return errx.Wrap(err, "failed to transform stream event", errx.TypeInternal)
+			}
+
+			if done {
 				break
 			}
 
-			if err := onChunk(data); err != nil {
+			// Skip events that produce no output (e.g. ping, content_block_stop)
+			if transformed == nil {
+				continue
+			}
+
+			if err := onChunk(transformed); err != nil {
 				return err
 			}
 		}
@@ -122,8 +150,8 @@ func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, 
 	return nil
 }
 
-func (u *Upstream) buildRequest(ctx context.Context, route *RouteResult, body []byte) (*http.Request, error) {
-	url := buildUpstreamURL(route)
+func (u *Upstream) buildRequest(ctx context.Context, route *RouteResult, body []byte, stream bool) (*http.Request, error) {
+	url := buildUpstreamURL(route, stream)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -137,13 +165,16 @@ func (u *Upstream) buildRequest(ctx context.Context, route *RouteResult, body []
 }
 
 // buildUpstreamURL constructs the full upstream endpoint URL
-func buildUpstreamURL(route *RouteResult) string {
+func buildUpstreamURL(route *RouteResult, stream bool) string {
 	base := strings.TrimSuffix(route.BaseURL, "/")
 
 	switch route.ProviderID.String() {
 	case "anthropic":
 		return base + "/messages"
-	case "google":
+	case "google", "google-ai-studio", "google-vertex":
+		if stream {
+			return base + "/models/" + route.ExternalID + ":streamGenerateContent?alt=sse"
+		}
 		return base + "/models/" + route.ExternalID + ":generateContent"
 	default:
 		// OpenAI-compatible (openai, groq, together, mistral, deepseek, xai, etc.)
@@ -157,7 +188,7 @@ func setAuthHeaders(req *http.Request, route *RouteResult) {
 	case "anthropic":
 		req.Header.Set("x-api-key", route.Token)
 		req.Header.Set("anthropic-version", "2023-06-01")
-	case "google":
+	case "google", "google-ai-studio", "google-vertex":
 		req.Header.Set("x-goog-api-key", route.Token)
 	default:
 		// OpenAI-compatible: Bearer token
