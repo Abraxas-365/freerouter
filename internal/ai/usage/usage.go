@@ -16,14 +16,14 @@ import (
 type UsageLog struct {
 	ID        kernel.UsageLogID    `db:"id" json:"id"`
 	TenantID  kernel.TenantID      `db:"tenant_id" json:"tenant_id"`
-	APIKeyID  *string              `db:"api_key_id" json:"api_key_id,omitempty"`
+	APIKeyID  *kernel.APIKeyID        `db:"api_key_id" json:"api_key_id,omitempty"`
 	KeyID     *kernel.ProviderKeyID `db:"provider_key_id" json:"provider_key_id,omitempty"`
 
 	// Request info
 	RequestedModel string `db:"requested_model" json:"requested_model"`
 	UsedModel      string `db:"used_model" json:"used_model"`       // External model ID sent upstream
-	UsedProvider   string `db:"used_provider" json:"used_provider"` // Provider ID
-	MappingID      string `db:"mapping_id" json:"mapping_id"`
+	UsedProvider   kernel.ProviderID `db:"used_provider" json:"used_provider"`
+	MappingID      kernel.MappingID  `db:"mapping_id" json:"mapping_id"`
 
 	// Tokens
 	PromptTokens     int `db:"prompt_tokens" json:"prompt_tokens"`
@@ -56,7 +56,7 @@ type UsageLogDTO struct {
 	TenantID       kernel.TenantID  `json:"tenant_id"`
 	RequestedModel string           `json:"requested_model"`
 	UsedModel      string           `json:"used_model"`
-	UsedProvider   string           `json:"used_provider"`
+	UsedProvider   kernel.ProviderID `json:"used_provider"`
 	PromptTokens   int              `json:"prompt_tokens"`
 	CompletionTokens int            `json:"completion_tokens"`
 	TotalTokens    int              `json:"total_tokens"`

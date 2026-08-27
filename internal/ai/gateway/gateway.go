@@ -2,6 +2,8 @@ package gateway
 
 import "time"
 
+import "github.com/Abraxas-365/freerouter/internal/kernel"
+
 // ============================================================================
 // Chat Completion Request (OpenAI-compatible)
 // ============================================================================
@@ -113,12 +115,12 @@ type ChatStreamChunk struct {
 
 // RouteResult holds the resolved provider context for a request
 type RouteResult struct {
-	ProviderID  string // e.g. "openai"
-	ExternalID  string // Provider's model identifier (e.g. "gpt-4o-2024-08-06")
-	MappingID   string // model_provider_mapping ID
-	Token       string // Decrypted provider API key
-	BaseURL     string // Upstream endpoint (e.g. "https://api.openai.com/v1")
-	KeyID       string // provider_key ID (for logging)
+	ProviderID  kernel.ProviderID    // e.g. "openai"
+	ExternalID  string               // Provider's model identifier (e.g. "gpt-4o-2024-08-06")
+	MappingID   kernel.MappingID     // model_provider_mapping ID
+	Token       string               // Decrypted provider API key
+	BaseURL     string               // Upstream endpoint (e.g. "https://api.openai.com/v1")
+	KeyID       kernel.ProviderKeyID // provider_key ID (for logging)
 	InputPrice  *float64
 	OutputPrice *float64
 }

@@ -107,12 +107,12 @@ func (r *Router) Resolve(ctx context.Context, modelID string, tenantID *kernel.T
 		}
 
 		return &RouteResult{
-			ProviderID:  prov.ID.String(),
+			ProviderID:  prov.ID,
 			ExternalID:  mapping.ExternalID,
-			MappingID:   mapping.ID.String(),
+			MappingID:   mapping.ID,
 			Token:       token,
 			BaseURL:     baseURL,
-			KeyID:       key.ID.String(),
+			KeyID:       key.ID,
 			InputPrice:  mapping.InputPrice,
 			OutputPrice: mapping.OutputPrice,
 		}, nil

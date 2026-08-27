@@ -140,7 +140,7 @@ func (u *Upstream) buildRequest(ctx context.Context, route *RouteResult, body []
 func buildUpstreamURL(route *RouteResult) string {
 	base := strings.TrimSuffix(route.BaseURL, "/")
 
-	switch route.ProviderID {
+	switch route.ProviderID.String() {
 	case "anthropic":
 		return base + "/messages"
 	case "google":
@@ -153,7 +153,7 @@ func buildUpstreamURL(route *RouteResult) string {
 
 // setAuthHeaders sets the authentication headers for the upstream request
 func setAuthHeaders(req *http.Request, route *RouteResult) {
-	switch route.ProviderID {
+	switch route.ProviderID.String() {
 	case "anthropic":
 		req.Header.Set("x-api-key", route.Token)
 		req.Header.Set("anthropic-version", "2023-06-01")

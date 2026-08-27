@@ -47,3 +47,9 @@ type TransactionID string
 func NewTransactionID(id string) TransactionID { return TransactionID(id) }
 func (t TransactionID) String() string         { return string(t) }
 func (t TransactionID) IsEmpty() bool          { return string(t) == "" }
+
+type APIKeyID string
+
+func NewAPIKeyID(id string) APIKeyID { return APIKeyID(id) }
+func (a APIKeyID) String() string    { return string(a) }
+func (a APIKeyID) IsEmpty() bool     { return string(a) == "" }

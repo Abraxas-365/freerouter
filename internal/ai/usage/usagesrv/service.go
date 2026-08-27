@@ -54,7 +54,7 @@ func (s *UsageService) LogRequest(
 		CreatedAt:      time.Now().UTC(),
 	}
 
-	keyID := kernel.NewProviderKeyID(route.KeyID)
+	keyID := route.KeyID
 	log.KeyID = &keyID
 
 	if resp != nil && resp.Usage != nil {
