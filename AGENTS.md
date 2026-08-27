@@ -112,6 +112,7 @@ Makefile            -> Dev commands, Docker, DB operations
 
 ## Key Decisions
 <!-- AGENTS-GENERATED:START key-decisions -->
+- **Pay-per-token platform**: This is an LLM router (like OpenRouter) where tenants buy and consume tokens. There are NO subscription plans, NO trials, NO trial expiration. Tenants pay per token usage. Never add subscription/trial logic.
 - **Multi-tenant**: All entities scoped by `TenantID`; queries must always filter by tenant
 - **Scope-based auth**: AWS IAM-inspired; users have direct scopes + role scopes; middleware enforces via `RequireScope`
 - **errx over stdlib errors**: All domain/service errors use `errx.Error` with registry codes; global error handler maps to HTTP responses
@@ -144,6 +145,7 @@ Makefile            -> Dev commands, Docker, DB operations
 ### Never Do
 - Commit secrets, credentials, or sensitive data
 - Use raw `string` for entity IDs -- always use typed IDs from `internal/kernel/common_ids.go` (e.g. `kernel.ProviderID`, `kernel.ModelID`); add new ID types there when needed
+- Add subscription plans, trial periods, or SaaS billing tiers -- this is a pay-per-token platform
 - Delete or edit `manifesto:` code-gen markers
 - Edit existing migration files (create new ones instead)
 - Push directly to main/master branch
