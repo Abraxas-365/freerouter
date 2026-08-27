@@ -42,6 +42,8 @@ func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 	v1 := router.Group("/v1", authMiddleware.Authenticate())
 	v1.Get("/models", authMiddleware.RequireScope("gateway:read"), h.ListModels)
 	v1.Post("/chat/completions", authMiddleware.RequireScope("gateway:chat"), h.ChatCompletions)
+	v1.Post("/messages", authMiddleware.RequireScope("gateway:chat"), h.AnthropicMessages)
+	v1.Post("/responses", authMiddleware.RequireScope("gateway:chat"), h.Responses)
 }
 
 // ListModels returns all active models in OpenAI-compatible format.
