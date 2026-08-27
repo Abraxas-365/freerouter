@@ -41,3 +41,9 @@ type UsageLogID string
 func NewUsageLogID(id string) UsageLogID { return UsageLogID(id) }
 func (u UsageLogID) String() string      { return string(u) }
 func (u UsageLogID) IsEmpty() bool       { return string(u) == "" }
+
+type TransactionID string
+
+func NewTransactionID(id string) TransactionID { return TransactionID(id) }
+func (t TransactionID) String() string         { return string(t) }
+func (t TransactionID) IsEmpty() bool          { return string(t) == "" }

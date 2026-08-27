@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Abraxas-365/freerouter/internal/ai/billing"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey"
 	"github.com/Abraxas-365/freerouter/internal/errx"
@@ -17,6 +18,7 @@ type Router struct {
 	providerRepo provider.ProviderRepository
 	keyRepo      providerkey.ProviderKeyRepository
 	encryptor    providerkey.TokenEncryptor
+	billingRepo  billing.BillingRepository
 }
 
 func NewRouter(
@@ -25,6 +27,7 @@ func NewRouter(
 	providerRepo provider.ProviderRepository,
 	keyRepo providerkey.ProviderKeyRepository,
 	encryptor providerkey.TokenEncryptor,
+	billingRepo billing.BillingRepository,
 ) *Router {
 	return &Router{
 		modelRepo:    modelRepo,
@@ -32,12 +35,24 @@ func NewRouter(
 		providerRepo: providerRepo,
 		keyRepo:      keyRepo,
 		encryptor:    encryptor,
+		billingRepo:  billingRepo,
 	}
 }
 
 // Resolve finds the best provider + credential for the requested model.
 // It returns a RouteResult with all the info needed to make the upstream call.
 func (r *Router) Resolve(ctx context.Context, modelID string, tenantID *kernel.TenantID) (*RouteResult, error) {
+	// 0. Check tenant has credits (skip for BYOK-only tenants in the future)
+	if tenantID != nil && !tenantID.IsEmpty() {
+		balance, err := r.billingRepo.GetBalance(ctx, *tenantID)
+		if err != nil {
+			return nil, errx.Wrap(err, "failed to check balance", errx.TypeInternal)
+		}
+		if balance.Balance <= 0 {
+			return nil, billing.ErrInsufficientBalance()
+		}
+	}
+
 	// 1. Find the model
 	model, err := r.modelRepo.FindByID(ctx, kernel.NewModelID(modelID))
 	if err != nil {
