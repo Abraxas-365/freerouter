@@ -419,7 +419,7 @@ func (s *Suite) seedTestData() {
 		"tenant:read", "tenant:write",
 		"providers:read", "providers:write", "providers:delete",
 		"models:read", "models:write", "models:delete",
-		"gateway:read", "gateway:chat",
+		"gateway:read", "gateway:write", "gateway:chat",
 		"billing:read", "billing:write", "billing:admin",
 		"usage:read",
 		"api_key:read", "api_key:write",

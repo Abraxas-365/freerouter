@@ -70,7 +70,7 @@ func (h *GatewayHandlers) Embeddings(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadGateway, "embedding request failed")
 	}
 
-	h.healthTracker.ReportSuccess(route.KeyID)
+	h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
 
 	// Calculate cost using the mapping's token pricing
 	cost := calculateEmbeddingCost(route, &embResp.Usage)

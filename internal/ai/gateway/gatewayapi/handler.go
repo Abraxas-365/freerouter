@@ -83,7 +83,8 @@ type GatewayHandlers struct {
 	rateLimiter   *gateway.RateLimiter
 	cache         *gateway.ResponseCache
 	metrics       *gateway.Metrics
-	webhooks      *webhooksrv.WebhookService // optional, nil = no webhook notifications
+	webhooks      *webhooksrv.WebhookService        // optional, nil = no webhook notifications
+	routingRepo   gateway.RoutingConfigRepository   // optional, nil = no per-tenant strategy
 }
 
 func NewGatewayHandlers(
@@ -117,6 +118,11 @@ func NewGatewayHandlers(
 // SetWebhooks sets the webhook service for firing events.
 func (h *GatewayHandlers) SetWebhooks(ws *webhooksrv.WebhookService) {
 	h.webhooks = ws
+}
+
+// SetRoutingConfigRepo sets the routing config repository for per-tenant strategy lookup.
+func (h *GatewayHandlers) SetRoutingConfigRepo(repo gateway.RoutingConfigRepository) {
+	h.routingRepo = repo
 }
 
 // checkModelAccess verifies that the API key (if used) is allowed to access
@@ -154,6 +160,11 @@ func (h *GatewayHandlers) RegisterAdminRoutes(router fiber.Router, authMiddlewar
 	cache := router.Group("/cache", authMiddleware.Authenticate())
 	cache.Delete("/", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.InvalidateCacheAll)
 	cache.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.InvalidateCacheTenant)
+
+	routing := router.Group("/routing", authMiddleware.Authenticate())
+	routing.Get("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayRead), h.GetRoutingConfig)
+	routing.Put("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayWrite), h.UpsertRoutingConfig)
+	routing.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayWrite), h.DeleteRoutingConfig)
 }
 
 // ListModels returns all active models in OpenAI-compatible format.
@@ -371,7 +382,7 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 			return err
 		}
 
-		h.healthTracker.ReportSuccess(route.KeyID)
+		h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
 
 		// Debit tenant balance for token usage
 		cost := calculateCost(route, resp)
@@ -511,7 +522,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 			}
 
 			// Success
-			h.healthTracker.ReportSuccess(route.KeyID)
+			h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
 			successRoute = route
 
 			var resp *gateway.ChatResponse
@@ -711,6 +722,83 @@ func (h *GatewayHandlers) InvalidateCacheTenant(c *fiber.Ctx) error {
 		"message":      fmt.Sprintf("cache invalidated for tenant %s", tenantID),
 		"keys_deleted": deleted,
 	})
+}
+
+// ===========================================================================
+// Routing Config CRUD
+// ===========================================================================
+
+func (h *GatewayHandlers) GetRoutingConfig(c *fiber.Ctx) error {
+	if h.routingRepo == nil {
+		return c.JSON(gateway.RoutingConfig{
+			TenantID: kernel.NewTenantID(c.Params("tenantId")),
+			Strategy: gateway.StrategyCheapest,
+		})
+	}
+
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+	cfg, err := h.routingRepo.GetByTenantID(c.Context(), tenantID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to get routing config")
+	}
+	if cfg == nil {
+		return c.JSON(gateway.RoutingConfig{
+			TenantID: tenantID,
+			Strategy: gateway.StrategyCheapest,
+		})
+	}
+	return c.JSON(cfg)
+}
+
+func (h *GatewayHandlers) UpsertRoutingConfig(c *fiber.Ctx) error {
+	if h.routingRepo == nil {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "routing config not available")
+	}
+
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+
+	var req gateway.UpsertRoutingConfigRequest
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+
+	strategy := gateway.RoutingStrategy(req.Strategy)
+	if !strategy.IsValid() {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf(
+			"invalid strategy %q, must be one of: cheapest, lowest-latency, round-robin", req.Strategy,
+		))
+	}
+
+	cfg := &gateway.RoutingConfig{
+		TenantID: tenantID,
+		Strategy: strategy,
+	}
+
+	saved, err := h.routingRepo.Upsert(c.Context(), cfg)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to save routing config")
+	}
+
+	// Invalidate the router's cached strategy for this tenant
+	h.router.InvalidateStrategyCache(tenantID.String())
+
+	return c.JSON(saved)
+}
+
+func (h *GatewayHandlers) DeleteRoutingConfig(c *fiber.Ctx) error {
+	if h.routingRepo == nil {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "routing config not available")
+	}
+
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+
+	if err := h.routingRepo.Delete(c.Context(), tenantID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to delete routing config")
+	}
+
+	h.router.InvalidateStrategyCache(tenantID.String())
+
+	return c.JSON(fiber.Map{"message": "Routing config deleted, tenant will use default (cheapest)"})
 }
 
 // fireWebhook fires a webhook event if webhooks are configured.

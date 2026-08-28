@@ -1687,3 +1687,139 @@ func TestPerKeyModelRestrictions(t *testing.T) {
 		}
 	})
 }
+
+// ============================================================================
+// Test: Routing Strategies
+// ============================================================================
+
+func TestRoutingStrategies(t *testing.T) {
+	s := NewSuite(t)
+
+	t.Run("get default routing config returns cheapest", func(t *testing.T) {
+		req := s.Request("GET", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), nil)
+		var result map[string]any
+		resp := s.DoJSON(req, &result)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		if result["strategy"] != "cheapest" {
+			t.Fatalf("expected default strategy=cheapest, got %v", result["strategy"])
+		}
+	})
+
+	t.Run("upsert routing config to lowest-latency", func(t *testing.T) {
+		req := s.Request("PUT", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), map[string]any{
+			"strategy": "lowest-latency",
+		})
+		var result map[string]any
+		resp := s.DoJSON(req, &result)
+		if resp.StatusCode != http.StatusOK {
+			body, _ := json.Marshal(result)
+			t.Fatalf("expected 200, got %d, body: %s", resp.StatusCode, body)
+		}
+		if result["strategy"] != "lowest-latency" {
+			t.Fatalf("expected strategy=lowest-latency, got %v", result["strategy"])
+		}
+	})
+
+	t.Run("get persisted routing config", func(t *testing.T) {
+		req := s.Request("GET", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), nil)
+		var result map[string]any
+		resp := s.DoJSON(req, &result)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		if result["strategy"] != "lowest-latency" {
+			t.Fatalf("expected strategy=lowest-latency, got %v", result["strategy"])
+		}
+	})
+
+	t.Run("update routing config to round-robin", func(t *testing.T) {
+		req := s.Request("PUT", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), map[string]any{
+			"strategy": "round-robin",
+		})
+		var result map[string]any
+		resp := s.DoJSON(req, &result)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		if result["strategy"] != "round-robin" {
+			t.Fatalf("expected strategy=round-robin, got %v", result["strategy"])
+		}
+	})
+
+	t.Run("invalid strategy returns 400", func(t *testing.T) {
+		req := s.Request("PUT", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), map[string]any{
+			"strategy": "invalid-strategy",
+		})
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("chat works with round-robin strategy", func(t *testing.T) {
+		// Set round-robin
+		s.DoJSON(s.Request("PUT", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), map[string]any{
+			"strategy": "round-robin",
+		}), nil)
+
+		// Make a chat request -- should still work
+		chatReq := s.Request("POST", "/v1/chat/completions", map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hello"}},
+		})
+		resp, body := s.Do(chatReq)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 with round-robin, got %d, body: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("chat works with lowest-latency strategy", func(t *testing.T) {
+		// Set lowest-latency
+		s.DoJSON(s.Request("PUT", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), map[string]any{
+			"strategy": "lowest-latency",
+		}), nil)
+
+		chatReq := s.Request("POST", "/v1/chat/completions", map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hello"}},
+		})
+		resp, body := s.Do(chatReq)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 with lowest-latency, got %d, body: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("delete routing config reverts to default", func(t *testing.T) {
+		req := s.Request("DELETE", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), nil)
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+
+		// Verify it's back to cheapest
+		getReq := s.Request("GET", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), nil)
+		var result map[string]any
+		s.DoJSON(getReq, &result)
+		if result["strategy"] != "cheapest" {
+			t.Fatalf("expected strategy=cheapest after delete, got %v", result["strategy"])
+		}
+	})
+
+	t.Run("scope enforcement for routing config", func(t *testing.T) {
+		key := s.createAPIKeyWithScopes([]string{"gateway:read"}) // read but not write
+		req := s.requestWith(key, "PUT", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), map[string]any{
+			"strategy": "round-robin",
+		})
+		resp, body := s.Do(req)
+		assertForbidden(t, resp, body)
+
+		// Read should work
+		readReq := s.requestWith(key, "GET", fmt.Sprintf("/api/v1/routing/%s", s.TenantID), nil)
+		readResp, _ := s.Do(readReq)
+		if readResp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for read, got %d", readResp.StatusCode)
+		}
+	})
+}

@@ -56,12 +56,18 @@ func New(deps Deps) *Container {
 		healthTracker,
 		deps.FallbackRepo,
 	)
+
+	// Wire routing config repo for per-tenant strategy
+	routingConfigRepo := gatewayinfra.NewPostgresRoutingConfigRepository(deps.DB)
+	router.SetRoutingConfigRepo(routingConfigRepo)
+
 	upstream := gateway.NewUpstream()
 	handlers := gatewayapi.NewGatewayHandlers(
 		router, upstream, deps.UsageService, deps.BillingService,
 		deps.ModelRepo, deps.MappingRepo, healthTracker,
 		deps.GuardrailsSvc, rateLimiter, cache, metrics,
 	)
+	handlers.SetRoutingConfigRepo(routingConfigRepo)
 
 	return &Container{
 		Router:        router,

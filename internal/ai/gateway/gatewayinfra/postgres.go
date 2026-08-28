@@ -48,3 +48,46 @@ func (r *PostgresRateLimitConfigRepository) Delete(ctx context.Context, tenantID
 	_, err := r.db.ExecContext(ctx, `DELETE FROM rate_limit_configs WHERE tenant_id = $1`, tenantID)
 	return err
 }
+
+// ============================================================================
+// Routing Config Repository
+// ============================================================================
+
+type PostgresRoutingConfigRepository struct {
+	db *sqlx.DB
+}
+
+func NewPostgresRoutingConfigRepository(db *sqlx.DB) gateway.RoutingConfigRepository {
+	return &PostgresRoutingConfigRepository{db: db}
+}
+
+func (r *PostgresRoutingConfigRepository) GetByTenantID(ctx context.Context, tenantID kernel.TenantID) (*gateway.RoutingConfig, error) {
+	var cfg gateway.RoutingConfig
+	err := r.db.GetContext(ctx, &cfg, `SELECT tenant_id, strategy FROM routing_configs WHERE tenant_id = $1`, tenantID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func (r *PostgresRoutingConfigRepository) Upsert(ctx context.Context, cfg *gateway.RoutingConfig) (*gateway.RoutingConfig, error) {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO routing_configs (tenant_id, strategy, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (tenant_id) DO UPDATE SET
+			strategy = EXCLUDED.strategy,
+			updated_at = NOW()
+	`, cfg.TenantID, cfg.Strategy)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetByTenantID(ctx, cfg.TenantID)
+}
+
+func (r *PostgresRoutingConfigRepository) Delete(ctx context.Context, tenantID kernel.TenantID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM routing_configs WHERE tenant_id = $1`, tenantID)
+	return err
+}

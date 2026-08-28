@@ -22,9 +22,10 @@ const (
 	ScopeProviderKeysDelete = "provider-keys:delete"
 
 	// Gateway scopes
-	ScopeGatewayAll  = "gateway:*"
-	ScopeGatewayRead = "gateway:read"
-	ScopeGatewayChat = "gateway:chat"
+	ScopeGatewayAll   = "gateway:*"
+	ScopeGatewayRead  = "gateway:read"
+	ScopeGatewayWrite = "gateway:write"
+	ScopeGatewayChat  = "gateway:chat"
 
 	// Billing scopes
 	ScopeBillingAll   = "billing:*"
@@ -76,6 +77,7 @@ var DomainScopeCategories = map[string][]string{
 	"Gateway": {
 		ScopeGatewayAll,
 		ScopeGatewayRead,
+		ScopeGatewayWrite,
 		ScopeGatewayChat,
 	},
 	"Billing": {
@@ -123,9 +125,10 @@ var DomainScopeDescriptions = map[string]string{
 	ScopeProviderKeysWrite:  "Create and edit provider keys",
 	ScopeProviderKeysDelete: "Delete provider keys",
 
-	ScopeGatewayAll:  "Full access to gateway",
-	ScopeGatewayRead: "View gateway configuration",
-	ScopeGatewayChat: "Use gateway for LLM requests",
+	ScopeGatewayAll:   "Full access to gateway",
+	ScopeGatewayRead:  "View gateway configuration",
+	ScopeGatewayWrite: "Modify gateway configuration (routing strategy, cache)",
+	ScopeGatewayChat:  "Use gateway for LLM requests",
 
 	ScopeBillingAll:   "Full access to billing",
 	ScopeBillingRead:  "View billing information",

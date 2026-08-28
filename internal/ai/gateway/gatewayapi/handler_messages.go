@@ -183,7 +183,7 @@ func (h *GatewayHandlers) handleAnthropicNonStreamWithRetry(c *fiber.Ctx, routes
 			return anthropicError(c, http.StatusBadGateway, "api_error", err.Error())
 		}
 
-		h.healthTracker.ReportSuccess(route.KeyID)
+		h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
 
 		cost := calculateCost(route, resp)
 		if cost > 0 {
@@ -340,7 +340,7 @@ func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []
 			}
 
 			// Success
-			h.healthTracker.ReportSuccess(route.KeyID)
+			h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
 
 			writeAnthropicSSE(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
 			stopReason := mapFinishReasonToAnthropic(lastFinishReason)

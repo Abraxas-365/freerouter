@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
+	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/billing"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"
@@ -21,7 +23,16 @@ type Router struct {
 	encryptor     providerkey.TokenEncryptor
 	billingRepo   billing.BillingRepository
 	healthTracker *KeyHealthTracker
-	fallbackRepo  provider.FallbackRepository // nil = no model fallback
+	fallbackRepo  provider.FallbackRepository       // nil = no model fallback
+	routingRepo   RoutingConfigRepository            // nil = always use cheapest
+	strategyCache sync.Map                           // tenantID -> *cachedStrategy
+}
+
+const strategyCacheTTL = 30 * time.Second
+
+type cachedStrategy struct {
+	strategy  RoutingStrategy
+	expiresAt time.Time
 }
 
 func NewRouter(
@@ -44,6 +55,46 @@ func NewRouter(
 		healthTracker: healthTracker,
 		fallbackRepo:  fallbackRepo,
 	}
+}
+
+// SetRoutingConfigRepo configures per-tenant routing strategy lookup.
+func (r *Router) SetRoutingConfigRepo(repo RoutingConfigRepository) {
+	r.routingRepo = repo
+}
+
+// InvalidateStrategyCache removes cached strategy for a tenant.
+func (r *Router) InvalidateStrategyCache(tenantID string) {
+	r.strategyCache.Delete(tenantID)
+}
+
+// getStrategy returns the routing strategy for a tenant, with caching.
+func (r *Router) getStrategy(ctx context.Context, tenantID *kernel.TenantID) RoutingStrategy {
+	if r.routingRepo == nil || tenantID == nil || tenantID.IsEmpty() {
+		return StrategyCheapest
+	}
+
+	tid := tenantID.String()
+	if cached, ok := r.strategyCache.Load(tid); ok {
+		cs := cached.(*cachedStrategy)
+		if time.Now().Before(cs.expiresAt) {
+			return cs.strategy
+		}
+	}
+
+	cfg, err := r.routingRepo.GetByTenantID(ctx, *tenantID)
+	if err == nil && cfg != nil {
+		r.strategyCache.Store(tid, &cachedStrategy{
+			strategy:  cfg.Strategy,
+			expiresAt: time.Now().Add(strategyCacheTTL),
+		})
+		return cfg.Strategy
+	}
+
+	r.strategyCache.Store(tid, &cachedStrategy{
+		strategy:  StrategyCheapest,
+		expiresAt: time.Now().Add(strategyCacheTTL),
+	})
+	return StrategyCheapest
 }
 
 // Resolve finds the best provider + credential for the requested model.
@@ -230,6 +281,21 @@ func (r *Router) ResolveAll(ctx context.Context, modelID string, tenantID *kerne
 			errx.TypeBusiness,
 		).WithDetail("model", modelID)
 	}
+
+	// 6. Apply routing strategy (ordering) — only to primary model routes.
+	//    Fallback routes always come after primary routes.
+	strategy := r.getStrategy(ctx, tenantID)
+	var primaryRoutes, fallbackRoutes []*RouteResult
+	for _, rt := range routes {
+		if rt.IsFallback {
+			fallbackRoutes = append(fallbackRoutes, rt)
+		} else {
+			primaryRoutes = append(primaryRoutes, rt)
+		}
+	}
+	applyStrategy(primaryRoutes, strategy, r.healthTracker)
+	applyStrategy(fallbackRoutes, strategy, r.healthTracker)
+	routes = append(primaryRoutes, fallbackRoutes...)
 
 	return routes, nil
 }

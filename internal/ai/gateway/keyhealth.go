@@ -24,6 +24,7 @@ var permanentErrorCodes = map[int]bool{
 type requestOutcome struct {
 	timestamp time.Time
 	success   bool
+	latency   time.Duration // 0 if not recorded
 }
 
 type keyHealth struct {
@@ -102,12 +103,17 @@ func (t *KeyHealthTracker) IsHealthy(keyID kernel.ProviderKeyID) bool {
 
 // ReportSuccess records a successful request for the given key.
 func (t *KeyHealthTracker) ReportSuccess(keyID kernel.ProviderKeyID) {
+	t.ReportSuccessWithLatency(keyID, 0)
+}
+
+// ReportSuccessWithLatency records a successful request with its duration.
+func (t *KeyHealthTracker) ReportSuccessWithLatency(keyID kernel.ProviderKeyID, latency time.Duration) {
 	h := t.getOrCreate(keyID)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.consecutiveErrors = 0
-	h.history = append(h.history, requestOutcome{time.Now(), true})
+	h.history = append(h.history, requestOutcome{time.Now(), true, latency})
 	h.pruneHistory()
 }
 
@@ -124,7 +130,7 @@ func (t *KeyHealthTracker) ReportError(keyID kernel.ProviderKeyID, statusCode in
 
 	h.consecutiveErrors++
 	h.lastErrorTime = time.Now()
-	h.history = append(h.history, requestOutcome{time.Now(), false})
+	h.history = append(h.history, requestOutcome{time.Now(), false, 0})
 	h.pruneHistory()
 }
 
@@ -175,6 +181,34 @@ func (t *KeyHealthTracker) UptimePenalty(keyID kernel.ProviderKeyID) float64 {
 	}
 	gap := healthUptimeThreshold - metrics.Uptime
 	return math.Exp(gap*10) - 1
+}
+
+// AverageLatency returns the average latency of successful requests within the
+// sliding window. Returns 0 if no latency data is available.
+func (t *KeyHealthTracker) AverageLatency(keyID kernel.ProviderKeyID) time.Duration {
+	t.mu.RLock()
+	h, ok := t.health[keyID]
+	t.mu.RUnlock()
+	if !ok {
+		return 0
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.pruneHistory()
+
+	var total time.Duration
+	var count int
+	for _, o := range h.history {
+		if o.success && o.latency > 0 {
+			total += o.latency
+			count++
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	return total / time.Duration(count)
 }
 
 // pruneHistory removes entries outside the metrics window. Must hold h.mu.

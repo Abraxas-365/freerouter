@@ -189,7 +189,7 @@ func (h *GatewayHandlers) handleResponsesNonStreamWithRetry(c *fiber.Ctx, routes
 			return err
 		}
 
-		h.healthTracker.ReportSuccess(route.KeyID)
+		h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
 
 		cost := calculateCost(route, resp)
 		if cost > 0 {
@@ -376,7 +376,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 			}
 
 			// Success
-			h.healthTracker.ReportSuccess(route.KeyID)
+			h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
 
 			writeResponsesSSE(w, "response.content_part.done", map[string]any{
 				"output_index": 0, "content_index": 0,

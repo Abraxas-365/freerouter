@@ -82,7 +82,7 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadGateway, "image generation failed")
 	}
 
-	h.healthTracker.ReportSuccess(route.KeyID)
+	h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
 
 	// Calculate cost (per image, not per token)
 	numImages := 1
