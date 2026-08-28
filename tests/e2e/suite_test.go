@@ -384,6 +384,7 @@ func (s *Suite) seedTestData() {
 		"provider-keys:read", "provider-keys:write", "provider-keys:delete",
 		"rate-limits:read", "rate-limits:write",
 		"webhooks:read", "webhooks:write",
+		"guardrails:read", "guardrails:write",
 	}
 	s.JWTToken, err = s.IAM.TokenService.GenerateAccessToken(
 		s.UserID, s.TenantID,
