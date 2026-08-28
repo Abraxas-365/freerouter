@@ -6,6 +6,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/billing"
 	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -21,17 +22,17 @@ func NewBillingHandlers(service *billingsrv.BillingService) *BillingHandlers {
 func (h *BillingHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	b := router.Group("/billing", authMiddleware.Authenticate())
 
-	b.Get("/balance", authMiddleware.RequireScope("billing:read"), h.GetBalance)
-	b.Post("/top-up", authMiddleware.RequireScope("billing:write"), h.TopUp)
-	b.Post("/adjust", authMiddleware.RequireScope("billing:admin"), h.Adjust)
-	b.Get("/transactions", authMiddleware.RequireScope("billing:read"), h.ListTransactions)
+	b.Get("/balance", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.GetBalance)
+	b.Post("/top-up", authMiddleware.RequireScope(scopes.ScopeBillingWrite), h.TopUp)
+	b.Post("/adjust", authMiddleware.RequireScope(scopes.ScopeBillingAdmin), h.Adjust)
+	b.Get("/transactions", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.ListTransactions)
 
 	// Spending limits
 	sl := router.Group("/spending-limits", authMiddleware.Authenticate())
-	sl.Get("/:tenantId", authMiddleware.RequireScope("billing:read"), h.GetSpendingLimit)
-	sl.Put("/:tenantId", authMiddleware.RequireScope("billing:write"), h.UpsertSpendingLimit)
-	sl.Delete("/:tenantId", authMiddleware.RequireScope("billing:write"), h.DeleteSpendingLimit)
-	sl.Get("/:tenantId/check", authMiddleware.RequireScope("billing:read"), h.CheckSpendingLimit)
+	sl.Get("/:tenantId", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.GetSpendingLimit)
+	sl.Put("/:tenantId", authMiddleware.RequireScope(scopes.ScopeBillingWrite), h.UpsertSpendingLimit)
+	sl.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeBillingWrite), h.DeleteSpendingLimit)
+	sl.Get("/:tenantId/check", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.CheckSpendingLimit)
 }
 
 func (h *BillingHandlers) GetBalance(c *fiber.Ctx) error {

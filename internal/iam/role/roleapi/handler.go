@@ -5,6 +5,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
 	"github.com/Abraxas-365/freerouter/internal/iam/role"
 	"github.com/Abraxas-365/freerouter/internal/iam/role/rolesrv"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -20,18 +21,18 @@ func NewRoleHandlers(service *rolesrv.RoleService) *RoleHandlers {
 func (h *RoleHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	roles := router.Group("/roles", authMiddleware.Authenticate())
 
-	roles.Post("/", authMiddleware.RequireScope("roles:write"), h.CreateRole)
-	roles.Get("/", authMiddleware.RequireScope("roles:read"), h.GetTenantRoles)
-	roles.Get("/:id", authMiddleware.RequireScope("roles:read"), h.GetRole)
-	roles.Put("/:id", authMiddleware.RequireScope("roles:write"), h.UpdateRole)
-	roles.Delete("/:id", authMiddleware.RequireScope("roles:delete"), h.DeleteRole)
+	roles.Post("/", authMiddleware.RequireScope(scopes.ScopeRolesWrite), h.CreateRole)
+	roles.Get("/", authMiddleware.RequireScope(scopes.ScopeRolesRead), h.GetTenantRoles)
+	roles.Get("/:id", authMiddleware.RequireScope(scopes.ScopeRolesRead), h.GetRole)
+	roles.Put("/:id", authMiddleware.RequireScope(scopes.ScopeRolesWrite), h.UpdateRole)
+	roles.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeRolesDelete), h.DeleteRole)
 
 	// Role assignment
-	roles.Post("/:id/assign", authMiddleware.RequireScope("roles:assign"), h.AssignRole)
-	roles.Delete("/:id/users/:userId", authMiddleware.RequireScope("roles:assign"), h.UnassignRole)
+	roles.Post("/:id/assign", authMiddleware.RequireScope(scopes.ScopeRolesAssign), h.AssignRole)
+	roles.Delete("/:id/users/:userId", authMiddleware.RequireScope(scopes.ScopeRolesAssign), h.UnassignRole)
 
 	// User roles
-	router.Get("/users/:userId/roles", authMiddleware.Authenticate(), authMiddleware.RequireScope("roles:read"), h.GetUserRoles)
+	router.Get("/users/:userId/roles", authMiddleware.Authenticate(), authMiddleware.RequireScope(scopes.ScopeRolesRead), h.GetUserRoles)
 }
 
 func (h *RoleHandlers) CreateRole(c *fiber.Ctx) error {

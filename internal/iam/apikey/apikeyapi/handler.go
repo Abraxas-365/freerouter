@@ -5,6 +5,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/iam/apikey"
 	"github.com/Abraxas-365/freerouter/internal/iam/apikey/apikeysrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -20,12 +21,12 @@ func NewAPIKeyHandlers(service *apikeysrv.APIKeyService) *APIKeyHandlers {
 func (h *APIKeyHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	keys := router.Group("/api-keys", authMiddleware.Authenticate())
 
-	keys.Post("/", authMiddleware.RequireScope("api_keys:write"), h.CreateAPIKey)
-	keys.Get("/", authMiddleware.RequireScope("api_keys:read"), h.GetTenantAPIKeys)
-	keys.Get("/:id", authMiddleware.RequireScope("api_keys:read"), h.GetAPIKey)
-	keys.Put("/:id", authMiddleware.RequireScope("api_keys:write"), h.UpdateAPIKey)
-	keys.Post("/:id/revoke", authMiddleware.RequireScope("api_keys:revoke"), h.RevokeAPIKey)
-	keys.Delete("/:id", authMiddleware.RequireScope("api_keys:delete"), h.DeleteAPIKey)
+	keys.Post("/", authMiddleware.RequireScope(scopes.ScopeAPIKeysWrite), h.CreateAPIKey)
+	keys.Get("/", authMiddleware.RequireScope(scopes.ScopeAPIKeysRead), h.GetTenantAPIKeys)
+	keys.Get("/:id", authMiddleware.RequireScope(scopes.ScopeAPIKeysRead), h.GetAPIKey)
+	keys.Put("/:id", authMiddleware.RequireScope(scopes.ScopeAPIKeysWrite), h.UpdateAPIKey)
+	keys.Post("/:id/revoke", authMiddleware.RequireScope(scopes.ScopeAPIKeysRevoke), h.RevokeAPIKey)
+	keys.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeAPIKeysDelete), h.DeleteAPIKey)
 }
 
 func (h *APIKeyHandlers) CreateAPIKey(c *fiber.Ctx) error {

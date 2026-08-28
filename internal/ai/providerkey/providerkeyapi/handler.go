@@ -4,6 +4,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey"
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey/providerkeysrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -19,16 +20,16 @@ func NewProviderKeyHandlers(service *providerkeysrv.ProviderKeyService) *Provide
 func (h *ProviderKeyHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	keys := router.Group("/provider-keys", authMiddleware.Authenticate())
 
-	keys.Post("/", authMiddleware.RequireScope("provider-keys:write"), h.CreateKey)
-	keys.Get("/:id", authMiddleware.RequireScope("provider-keys:read"), h.GetKey)
-	keys.Put("/:id", authMiddleware.RequireScope("provider-keys:write"), h.UpdateKey)
-	keys.Delete("/:id", authMiddleware.RequireScope("provider-keys:delete"), h.DeleteKey)
+	keys.Post("/", authMiddleware.RequireScope(scopes.ScopeProviderKeysWrite), h.CreateKey)
+	keys.Get("/:id", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.GetKey)
+	keys.Put("/:id", authMiddleware.RequireScope(scopes.ScopeProviderKeysWrite), h.UpdateKey)
+	keys.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeProviderKeysDelete), h.DeleteKey)
 
-	keys.Get("/by-provider/:providerId", authMiddleware.RequireScope("provider-keys:read"), h.ListByProvider)
-	keys.Get("/by-tenant/:tenantId", authMiddleware.RequireScope("provider-keys:read"), h.ListByTenant)
-	keys.Get("/managed", authMiddleware.RequireScope("provider-keys:read"), h.ListManaged)
+	keys.Get("/by-provider/:providerId", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListByProvider)
+	keys.Get("/by-tenant/:tenantId", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListByTenant)
+	keys.Get("/managed", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListManaged)
 
-	keys.Post("/:id/test", authMiddleware.RequireScope("provider-keys:write"), h.TestKey)
+	keys.Post("/:id/test", authMiddleware.RequireScope(scopes.ScopeProviderKeysWrite), h.TestKey)
 }
 
 func (h *ProviderKeyHandlers) CreateKey(c *fiber.Ctx) error {

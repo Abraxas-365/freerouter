@@ -5,6 +5,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
 	"github.com/Abraxas-365/freerouter/internal/iam/invitation"
 	"github.com/Abraxas-365/freerouter/internal/iam/invitation/invitationsrv"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -26,12 +27,12 @@ func (h *InvitationHandlers) RegisterRoutes(router fiber.Router, authMiddleware 
 	invitations := router.Group("/invitations", authMiddleware.Authenticate())
 
 	// Protected routes
-	invitations.Post("/", authMiddleware.RequireScope("invitations:write"), h.CreateInvitation)
-	invitations.Get("/", authMiddleware.RequireScope("invitations:read"), h.GetTenantInvitations)
-	invitations.Get("/pending", authMiddleware.RequireScope("invitations:read"), h.GetPendingInvitations)
-	invitations.Get("/:id", authMiddleware.RequireScope("invitations:read"), h.GetInvitationByID)
-	invitations.Delete("/:id", authMiddleware.RequireScope("invitations:delete"), h.DeleteInvitation)
-	invitations.Post("/:id/revoke", authMiddleware.RequireScope("invitations:revoke"), h.RevokeInvitation)
+	invitations.Post("/", authMiddleware.RequireScope(scopes.ScopeInvitationsWrite), h.CreateInvitation)
+	invitations.Get("/", authMiddleware.RequireScope(scopes.ScopeInvitationsRead), h.GetTenantInvitations)
+	invitations.Get("/pending", authMiddleware.RequireScope(scopes.ScopeInvitationsRead), h.GetPendingInvitations)
+	invitations.Get("/:id", authMiddleware.RequireScope(scopes.ScopeInvitationsRead), h.GetInvitationByID)
+	invitations.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeInvitationsDelete), h.DeleteInvitation)
+	invitations.Post("/:id/revoke", authMiddleware.RequireScope(scopes.ScopeInvitationsRevoke), h.RevokeInvitation)
 
 	// Public routes
 	public := router.Group("/invitations/public")

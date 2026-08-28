@@ -7,6 +7,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/ai/guardrails"
 	"github.com/Abraxas-365/freerouter/internal/ai/guardrails/guardrailssrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -23,20 +24,20 @@ func (h *GuardrailHandlers) RegisterRoutes(router fiber.Router, authMiddleware *
 	g := router.Group("/guardrails", authMiddleware.Authenticate())
 
 	// Config
-	g.Get("/config", authMiddleware.RequireScope("guardrails:read"), h.GetConfig)
-	g.Put("/config", authMiddleware.RequireScope("guardrails:write"), h.UpsertConfig)
+	g.Get("/config", authMiddleware.RequireScope(scopes.ScopeGuardrailsRead), h.GetConfig)
+	g.Put("/config", authMiddleware.RequireScope(scopes.ScopeGuardrailsWrite), h.UpsertConfig)
 
 	// Rules
-	g.Get("/rules", authMiddleware.RequireScope("guardrails:read"), h.ListRules)
-	g.Post("/rules", authMiddleware.RequireScope("guardrails:write"), h.CreateRule)
-	g.Put("/rules/:ruleId", authMiddleware.RequireScope("guardrails:write"), h.UpdateRule)
-	g.Delete("/rules/:ruleId", authMiddleware.RequireScope("guardrails:write"), h.DeleteRule)
+	g.Get("/rules", authMiddleware.RequireScope(scopes.ScopeGuardrailsRead), h.ListRules)
+	g.Post("/rules", authMiddleware.RequireScope(scopes.ScopeGuardrailsWrite), h.CreateRule)
+	g.Put("/rules/:ruleId", authMiddleware.RequireScope(scopes.ScopeGuardrailsWrite), h.UpdateRule)
+	g.Delete("/rules/:ruleId", authMiddleware.RequireScope(scopes.ScopeGuardrailsWrite), h.DeleteRule)
 
 	// Violations
-	g.Get("/violations", authMiddleware.RequireScope("guardrails:read"), h.ListViolations)
+	g.Get("/violations", authMiddleware.RequireScope(scopes.ScopeGuardrailsRead), h.ListViolations)
 
 	// Test
-	g.Post("/test", authMiddleware.RequireScope("guardrails:read"), h.TestCheck)
+	g.Post("/test", authMiddleware.RequireScope(scopes.ScopeGuardrailsRead), h.TestCheck)
 }
 
 func (h *GuardrailHandlers) GetConfig(c *fiber.Ctx) error {

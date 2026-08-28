@@ -387,7 +387,7 @@ func (s *ProviderService) CreateFallback(ctx context.Context, req provider.Creat
 	}
 
 	f := provider.ModelFallback{
-		ID:              uuid.NewString(),
+		ID:              kernel.NewModelFallbackID(uuid.NewString()),
 		ModelID:         req.ModelID,
 		FallbackModelID: req.FallbackModelID,
 		Priority:        req.Priority,
@@ -405,6 +405,6 @@ func (s *ProviderService) ListFallbacks(ctx context.Context, modelID kernel.Mode
 	return s.fallbackRepo.FindByModelID(ctx, modelID)
 }
 
-func (s *ProviderService) DeleteFallback(ctx context.Context, id string) error {
+func (s *ProviderService) DeleteFallback(ctx context.Context, id kernel.ModelFallbackID) error {
 	return s.fallbackRepo.Delete(ctx, id)
 }

@@ -83,3 +83,9 @@ type WebhookDeliveryID string
 func NewWebhookDeliveryID(id string) WebhookDeliveryID { return WebhookDeliveryID(id) }
 func (w WebhookDeliveryID) String() string             { return string(w) }
 func (w WebhookDeliveryID) IsEmpty() bool              { return string(w) == "" }
+
+type ModelFallbackID string
+
+func NewModelFallbackID(id string) ModelFallbackID { return ModelFallbackID(id) }
+func (m ModelFallbackID) String() string           { return string(m) }
+func (m ModelFallbackID) IsEmpty() bool            { return string(m) == "" }

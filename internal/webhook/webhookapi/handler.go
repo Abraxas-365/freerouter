@@ -2,6 +2,7 @@ package webhookapi
 
 import (
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/Abraxas-365/freerouter/internal/webhook"
 	"github.com/Abraxas-365/freerouter/internal/webhook/webhooksrv"
@@ -18,14 +19,14 @@ func NewWebhookHandlers(service *webhooksrv.WebhookService) *WebhookHandlers {
 
 func (h *WebhookHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	wh := router.Group("/webhooks", authMiddleware.Authenticate())
-	wh.Post("/", authMiddleware.RequireScope("webhooks:write"), h.Create)
-	wh.Get("/", authMiddleware.RequireScope("webhooks:read"), h.List)
-	wh.Get("/events", authMiddleware.RequireScope("webhooks:read"), h.ListEvents)
-	wh.Get("/:id", authMiddleware.RequireScope("webhooks:read"), h.Get)
-	wh.Put("/:id", authMiddleware.RequireScope("webhooks:write"), h.Update)
-	wh.Delete("/:id", authMiddleware.RequireScope("webhooks:write"), h.Delete)
-	wh.Get("/:id/deliveries", authMiddleware.RequireScope("webhooks:read"), h.ListDeliveries)
-	wh.Post("/:id/test", authMiddleware.RequireScope("webhooks:write"), h.Test)
+	wh.Post("/", authMiddleware.RequireScope(scopes.ScopeWebhooksWrite), h.Create)
+	wh.Get("/", authMiddleware.RequireScope(scopes.ScopeWebhooksRead), h.List)
+	wh.Get("/events", authMiddleware.RequireScope(scopes.ScopeWebhooksRead), h.ListEvents)
+	wh.Get("/:id", authMiddleware.RequireScope(scopes.ScopeWebhooksRead), h.Get)
+	wh.Put("/:id", authMiddleware.RequireScope(scopes.ScopeWebhooksWrite), h.Update)
+	wh.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeWebhooksWrite), h.Delete)
+	wh.Get("/:id/deliveries", authMiddleware.RequireScope(scopes.ScopeWebhooksRead), h.ListDeliveries)
+	wh.Post("/:id/test", authMiddleware.RequireScope(scopes.ScopeWebhooksWrite), h.Test)
 }
 
 func (h *WebhookHandlers) Create(c *fiber.Ctx) error {

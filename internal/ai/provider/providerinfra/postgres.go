@@ -492,8 +492,8 @@ func (r *PostgresFallbackRepository) Save(ctx context.Context, f provider.ModelF
 	return nil
 }
 
-func (r *PostgresFallbackRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM model_fallbacks WHERE id = $1`, id)
+func (r *PostgresFallbackRepository) Delete(ctx context.Context, id kernel.ModelFallbackID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM model_fallbacks WHERE id = $1`, id.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to delete fallback", errx.TypeInternal)
 	}

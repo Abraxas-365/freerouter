@@ -6,6 +6,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/ai/usage"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagesrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -20,9 +21,9 @@ func NewUsageHandlers(service *usagesrv.UsageService) *UsageHandlers {
 
 func (h *UsageHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	u := router.Group("/usage", authMiddleware.Authenticate())
-	u.Get("/logs", authMiddleware.RequireScope("usage:read"), h.QueryLogs)
-	u.Get("/logs/:id", authMiddleware.RequireScope("usage:read"), h.GetLog)
-	u.Get("/summary", authMiddleware.RequireScope("usage:read"), h.GetSummary)
+	u.Get("/logs", authMiddleware.RequireScope(scopes.ScopeUsageRead), h.QueryLogs)
+	u.Get("/logs/:id", authMiddleware.RequireScope(scopes.ScopeUsageRead), h.GetLog)
+	u.Get("/summary", authMiddleware.RequireScope(scopes.ScopeUsageRead), h.GetSummary)
 }
 
 func (h *UsageHandlers) GetLog(c *fiber.Ctx) error {

@@ -4,6 +4,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider/providersrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -18,30 +19,30 @@ func NewProviderHandlers(service *providersrv.ProviderService) *ProviderHandlers
 
 func (h *ProviderHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	providers := router.Group("/providers", authMiddleware.Authenticate())
-	providers.Post("/", authMiddleware.RequireScope("providers:write"), h.CreateProvider)
-	providers.Get("/", authMiddleware.RequireScope("providers:read"), h.ListProviders)
-	providers.Get("/:id", authMiddleware.RequireScope("providers:read"), h.GetProvider)
-	providers.Put("/:id", authMiddleware.RequireScope("providers:write"), h.UpdateProvider)
-	providers.Delete("/:id", authMiddleware.RequireScope("providers:delete"), h.DeleteProvider)
+	providers.Post("/", authMiddleware.RequireScope(scopes.ScopeProvidersWrite), h.CreateProvider)
+	providers.Get("/", authMiddleware.RequireScope(scopes.ScopeProvidersRead), h.ListProviders)
+	providers.Get("/:id", authMiddleware.RequireScope(scopes.ScopeProvidersRead), h.GetProvider)
+	providers.Put("/:id", authMiddleware.RequireScope(scopes.ScopeProvidersWrite), h.UpdateProvider)
+	providers.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeProvidersDelete), h.DeleteProvider)
 
 	models := router.Group("/models", authMiddleware.Authenticate())
-	models.Post("/", authMiddleware.RequireScope("models:write"), h.CreateModel)
-	models.Get("/", authMiddleware.RequireScope("models:read"), h.ListModels)
-	models.Get("/:id", authMiddleware.RequireScope("models:read"), h.GetModel)
-	models.Get("/:id/mappings", authMiddleware.RequireScope("models:read"), h.GetModelWithMappings)
-	models.Put("/:id", authMiddleware.RequireScope("models:write"), h.UpdateModel)
-	models.Delete("/:id", authMiddleware.RequireScope("models:delete"), h.DeleteModel)
+	models.Post("/", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.CreateModel)
+	models.Get("/", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.ListModels)
+	models.Get("/:id", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.GetModel)
+	models.Get("/:id/mappings", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.GetModelWithMappings)
+	models.Put("/:id", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.UpdateModel)
+	models.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeModelsDelete), h.DeleteModel)
 
 	mappings := router.Group("/mappings", authMiddleware.Authenticate())
-	mappings.Post("/", authMiddleware.RequireScope("models:write"), h.CreateMapping)
-	mappings.Get("/:id", authMiddleware.RequireScope("models:read"), h.GetMapping)
-	mappings.Put("/:id", authMiddleware.RequireScope("models:write"), h.UpdateMapping)
-	mappings.Delete("/:id", authMiddleware.RequireScope("models:delete"), h.DeleteMapping)
+	mappings.Post("/", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.CreateMapping)
+	mappings.Get("/:id", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.GetMapping)
+	mappings.Put("/:id", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.UpdateMapping)
+	mappings.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeModelsDelete), h.DeleteMapping)
 
 	fallbacks := router.Group("/model-fallbacks", authMiddleware.Authenticate())
-	fallbacks.Post("/", authMiddleware.RequireScope("models:write"), h.CreateFallback)
-	fallbacks.Get("/by-model/:modelId", authMiddleware.RequireScope("models:read"), h.ListFallbacks)
-	fallbacks.Delete("/:id", authMiddleware.RequireScope("models:delete"), h.DeleteFallback)
+	fallbacks.Post("/", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.CreateFallback)
+	fallbacks.Get("/by-model/:modelId", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.ListFallbacks)
+	fallbacks.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeModelsDelete), h.DeleteFallback)
 }
 
 // ============================================================================
@@ -232,7 +233,7 @@ func (h *ProviderHandlers) ListFallbacks(c *fiber.Ctx) error {
 }
 
 func (h *ProviderHandlers) DeleteFallback(c *fiber.Ctx) error {
-	if err := h.service.DeleteFallback(c.Context(), c.Params("id")); err != nil {
+	if err := h.service.DeleteFallback(c.Context(), kernel.NewModelFallbackID(c.Params("id"))); err != nil {
 		return err
 	}
 	return c.JSON(fiber.Map{"message": "Fallback deleted successfully"})

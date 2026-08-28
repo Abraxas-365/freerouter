@@ -2,6 +2,7 @@ package tenantapi
 
 import (
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/iam/tenant"
 	"github.com/Abraxas-365/freerouter/internal/iam/tenant/tenantsrv"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
@@ -19,21 +20,21 @@ func NewTenantHandlers(service *tenantsrv.TenantService) *TenantHandlers {
 func (h *TenantHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	tenants := router.Group("/tenants", authMiddleware.Authenticate())
 
-	tenants.Post("/", authMiddleware.RequireScope("tenants:write"), h.CreateTenant)
-	tenants.Get("/", authMiddleware.RequireScope("tenants:read"), h.GetAllTenants)
-	tenants.Get("/:id", authMiddleware.RequireScope("tenants:read"), h.GetTenant)
-	tenants.Put("/:id", authMiddleware.RequireScope("tenants:write"), h.UpdateTenant)
-	tenants.Delete("/:id", authMiddleware.RequireScope("tenants:delete"), h.DeleteTenant)
-	tenants.Post("/:id/suspend", authMiddleware.RequireScope("tenants:write"), h.SuspendTenant)
-	tenants.Post("/:id/activate", authMiddleware.RequireScope("tenants:write"), h.ActivateTenant)
-	tenants.Get("/:id/stats", authMiddleware.RequireScope("tenants:read"), h.GetTenantStats)
-	tenants.Get("/:id/usage", authMiddleware.RequireScope("tenants:read"), h.GetTenantUsage)
-	tenants.Get("/:id/users", authMiddleware.RequireScope("tenants:read"), h.GetTenantUsers)
+	tenants.Post("/", authMiddleware.RequireScope(scopes.ScopeTenantsWrite), h.CreateTenant)
+	tenants.Get("/", authMiddleware.RequireScope(scopes.ScopeTenantsRead), h.GetAllTenants)
+	tenants.Get("/:id", authMiddleware.RequireScope(scopes.ScopeTenantsRead), h.GetTenant)
+	tenants.Put("/:id", authMiddleware.RequireScope(scopes.ScopeTenantsWrite), h.UpdateTenant)
+	tenants.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeTenantsDelete), h.DeleteTenant)
+	tenants.Post("/:id/suspend", authMiddleware.RequireScope(scopes.ScopeTenantsWrite), h.SuspendTenant)
+	tenants.Post("/:id/activate", authMiddleware.RequireScope(scopes.ScopeTenantsWrite), h.ActivateTenant)
+	tenants.Get("/:id/stats", authMiddleware.RequireScope(scopes.ScopeTenantsRead), h.GetTenantStats)
+	tenants.Get("/:id/usage", authMiddleware.RequireScope(scopes.ScopeTenantsRead), h.GetTenantUsage)
+	tenants.Get("/:id/users", authMiddleware.RequireScope(scopes.ScopeTenantsRead), h.GetTenantUsers)
 
 	// Tenant config
-	tenants.Get("/:id/config", authMiddleware.RequireScope("tenants:config"), h.GetTenantConfig)
-	tenants.Put("/:id/config", authMiddleware.RequireScope("tenants:config"), h.SetTenantConfig)
-	tenants.Delete("/:id/config/:key", authMiddleware.RequireScope("tenants:config"), h.DeleteTenantConfig)
+	tenants.Get("/:id/config", authMiddleware.RequireScope(scopes.ScopeTenantsConfig), h.GetTenantConfig)
+	tenants.Put("/:id/config", authMiddleware.RequireScope(scopes.ScopeTenantsConfig), h.SetTenantConfig)
+	tenants.Delete("/:id/config/:key", authMiddleware.RequireScope(scopes.ScopeTenantsConfig), h.DeleteTenantConfig)
 }
 
 func (h *TenantHandlers) CreateTenant(c *fiber.Ctx) error {

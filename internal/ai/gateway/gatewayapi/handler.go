@@ -16,6 +16,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagesrv"
 	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/Abraxas-365/freerouter/internal/webhook"
 	"github.com/Abraxas-365/freerouter/internal/webhook/webhooksrv"
@@ -72,23 +73,23 @@ func (h *GatewayHandlers) SetWebhooks(ws *webhooksrv.WebhookService) {
 
 func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	v1 := router.Group("/v1", authMiddleware.Authenticate())
-	v1.Get("/models", authMiddleware.RequireScope("gateway:read"), h.ListModels)
-	v1.Post("/chat/completions", authMiddleware.RequireScope("gateway:chat"), h.ChatCompletions)
-	v1.Post("/messages", authMiddleware.RequireScope("gateway:chat"), h.AnthropicMessages)
-	v1.Post("/responses", authMiddleware.RequireScope("gateway:chat"), h.Responses)
-	v1.Post("/cost/estimate", authMiddleware.RequireScope("gateway:read"), h.EstimateCost)
+	v1.Get("/models", authMiddleware.RequireScope(scopes.ScopeGatewayRead), h.ListModels)
+	v1.Post("/chat/completions", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.ChatCompletions)
+	v1.Post("/messages", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.AnthropicMessages)
+	v1.Post("/responses", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Responses)
+	v1.Post("/cost/estimate", authMiddleware.RequireScope(scopes.ScopeGatewayRead), h.EstimateCost)
 }
 
 // RegisterAdminRoutes registers rate limit config and cache invalidation routes (under /api/v1).
 func (h *GatewayHandlers) RegisterAdminRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	rl := router.Group("/rate-limits", authMiddleware.Authenticate())
-	rl.Get("/:tenantId", authMiddleware.RequireScope("rate-limits:read"), h.GetRateLimitConfig)
-	rl.Put("/:tenantId", authMiddleware.RequireScope("rate-limits:write"), h.UpsertRateLimitConfig)
-	rl.Delete("/:tenantId", authMiddleware.RequireScope("rate-limits:write"), h.DeleteRateLimitConfig)
+	rl.Get("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsRead), h.GetRateLimitConfig)
+	rl.Put("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsWrite), h.UpsertRateLimitConfig)
+	rl.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsWrite), h.DeleteRateLimitConfig)
 
 	cache := router.Group("/cache", authMiddleware.Authenticate())
-	cache.Delete("/", authMiddleware.RequireScope("gateway:chat"), h.InvalidateCacheAll)
-	cache.Delete("/:tenantId", authMiddleware.RequireScope("gateway:chat"), h.InvalidateCacheTenant)
+	cache.Delete("/", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.InvalidateCacheAll)
+	cache.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.InvalidateCacheTenant)
 }
 
 // ListModels returns all active models in OpenAI-compatible format.

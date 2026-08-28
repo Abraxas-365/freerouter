@@ -453,12 +453,12 @@ func ErrMappingAlreadyExists() *errx.Error   { return ErrRegistry.New(CodeMappin
 // ModelFallback defines a fallback relationship between two models.
 // When the primary model fails, the system tries the fallback model.
 type ModelFallback struct {
-	ID              string         `db:"id" json:"id"`
-	ModelID         kernel.ModelID `db:"model_id" json:"model_id"`
-	FallbackModelID kernel.ModelID `db:"fallback_model_id" json:"fallback_model_id"`
-	Priority        int            `db:"priority" json:"priority"` // lower = higher priority
-	Enabled         bool           `db:"enabled" json:"enabled"`
-	CreatedAt       time.Time      `db:"created_at" json:"created_at"`
+	ID              kernel.ModelFallbackID `db:"id" json:"id"`
+	ModelID         kernel.ModelID         `db:"model_id" json:"model_id"`
+	FallbackModelID kernel.ModelID         `db:"fallback_model_id" json:"fallback_model_id"`
+	Priority        int                    `db:"priority" json:"priority"` // lower = higher priority
+	Enabled         bool                   `db:"enabled" json:"enabled"`
+	CreatedAt       time.Time              `db:"created_at" json:"created_at"`
 }
 
 // CreateModelFallbackRequest is the DTO for creating a fallback mapping.

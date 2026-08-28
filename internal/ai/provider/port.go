@@ -39,5 +39,5 @@ type MappingRepository interface {
 type FallbackRepository interface {
 	FindByModelID(ctx context.Context, modelID kernel.ModelID) ([]*ModelFallback, error)
 	Save(ctx context.Context, f ModelFallback) error
-	Delete(ctx context.Context, id string) error
+	Delete(ctx context.Context, id kernel.ModelFallbackID) error
 }
