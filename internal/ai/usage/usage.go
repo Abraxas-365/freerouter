@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -14,14 +15,14 @@ import (
 
 // UsageLog records a single gateway request with token counts and costs
 type UsageLog struct {
-	ID        kernel.UsageLogID    `db:"id" json:"id"`
-	TenantID  kernel.TenantID      `db:"tenant_id" json:"tenant_id"`
-	APIKeyID  *kernel.APIKeyID        `db:"api_key_id" json:"api_key_id,omitempty"`
-	KeyID     *kernel.ProviderKeyID `db:"provider_key_id" json:"provider_key_id,omitempty"`
+	ID       kernel.UsageLogID     `db:"id" json:"id"`
+	TenantID kernel.TenantID       `db:"tenant_id" json:"tenant_id"`
+	APIKeyID *kernel.APIKeyID      `db:"api_key_id" json:"api_key_id,omitempty"`
+	KeyID    *kernel.ProviderKeyID `db:"provider_key_id" json:"provider_key_id,omitempty"`
 
 	// Request info
-	RequestedModel string `db:"requested_model" json:"requested_model"`
-	UsedModel      string `db:"used_model" json:"used_model"`       // External model ID sent upstream
+	RequestedModel string            `db:"requested_model" json:"requested_model"`
+	UsedModel      string            `db:"used_model" json:"used_model"` // External model ID sent upstream
 	UsedProvider   kernel.ProviderID `db:"used_provider" json:"used_provider"`
 	MappingID      kernel.MappingID  `db:"mapping_id" json:"mapping_id"`
 
@@ -44,7 +45,44 @@ type UsageLog struct {
 	HasError     bool   `db:"has_error" json:"has_error"`
 	ErrorMessage string `db:"error_message" json:"error_message,omitempty"`
 
+	// Content logging (always stored)
+	Messages     json.RawMessage `db:"messages" json:"messages,omitempty"`
+	ResponseBody json.RawMessage `db:"response_body" json:"response_body,omitempty"`
+
+	// Debug payloads (debug mode only)
+	RawRequest       json.RawMessage `db:"raw_request" json:"-"`
+	RawResponse      json.RawMessage `db:"raw_response" json:"-"`
+	UpstreamRequest  json.RawMessage `db:"upstream_request" json:"-"`
+	UpstreamResponse json.RawMessage `db:"upstream_response" json:"-"`
+	IsDebug          bool            `db:"is_debug" json:"is_debug"`
+
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
+}
+
+// RequestContent carries request/response content from handlers to LogRequest.
+type RequestContent struct {
+	Messages         json.RawMessage `json:"messages,omitempty"`
+	ResponseBody     json.RawMessage `json:"response_body,omitempty"`
+	RawRequest       json.RawMessage `json:"raw_request,omitempty"`
+	RawResponse      json.RawMessage `json:"raw_response,omitempty"`
+	UpstreamRequest  json.RawMessage `json:"upstream_request,omitempty"`
+	UpstreamResponse json.RawMessage `json:"upstream_response,omitempty"`
+	IsDebug          bool            `json:"is_debug"`
+}
+
+// ============================================================================
+// Data Retention Config Entity
+// ============================================================================
+
+// DataRetentionConfig defines a per-tenant retention policy for usage log content.
+type DataRetentionConfig struct {
+	TenantID            kernel.TenantID `db:"tenant_id" json:"tenant_id"`
+	RetentionDays       int             `db:"retention_days" json:"retention_days"`
+	RetainMessages      bool            `db:"retain_messages" json:"retain_messages"`
+	RetainResponseBody  bool            `db:"retain_response_body" json:"retain_response_body"`
+	RetainDebugPayloads bool            `db:"retain_debug_payloads" json:"retain_debug_payloads"`
+	CreatedAt           time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt           time.Time       `db:"updated_at" json:"updated_at"`
 }
 
 // ============================================================================
@@ -52,22 +90,22 @@ type UsageLog struct {
 // ============================================================================
 
 type UsageLogDTO struct {
-	ID             kernel.UsageLogID `json:"id"`
-	TenantID       kernel.TenantID  `json:"tenant_id"`
-	RequestedModel string           `json:"requested_model"`
-	UsedModel      string           `json:"used_model"`
-	UsedProvider   kernel.ProviderID `json:"used_provider"`
-	PromptTokens   int              `json:"prompt_tokens"`
-	CompletionTokens int            `json:"completion_tokens"`
-	TotalTokens    int              `json:"total_tokens"`
-	InputCost      float64          `json:"input_cost"`
-	OutputCost     float64          `json:"output_cost"`
-	TotalCost      float64          `json:"total_cost"`
-	DurationMs     int              `json:"duration_ms"`
-	Streamed       bool             `json:"streamed"`
-	StatusCode     int              `json:"status_code"`
-	HasError       bool             `json:"has_error"`
-	CreatedAt      time.Time        `json:"created_at"`
+	ID               kernel.UsageLogID `json:"id"`
+	TenantID         kernel.TenantID   `json:"tenant_id"`
+	RequestedModel   string            `json:"requested_model"`
+	UsedModel        string            `json:"used_model"`
+	UsedProvider     kernel.ProviderID `json:"used_provider"`
+	PromptTokens     int               `json:"prompt_tokens"`
+	CompletionTokens int               `json:"completion_tokens"`
+	TotalTokens      int               `json:"total_tokens"`
+	InputCost        float64           `json:"input_cost"`
+	OutputCost       float64           `json:"output_cost"`
+	TotalCost        float64           `json:"total_cost"`
+	DurationMs       int               `json:"duration_ms"`
+	Streamed         bool              `json:"streamed"`
+	StatusCode       int               `json:"status_code"`
+	HasError         bool              `json:"has_error"`
+	CreatedAt        time.Time         `json:"created_at"`
 }
 
 func (l *UsageLog) ToDTO() UsageLogDTO {
@@ -88,6 +126,32 @@ func (l *UsageLog) ToDTO() UsageLogDTO {
 		StatusCode:       l.StatusCode,
 		HasError:         l.HasError,
 		CreatedAt:        l.CreatedAt,
+	}
+}
+
+// UsageLogDetailDTO is the full log representation, including content, used
+// when fetching a single log by ID.
+type UsageLogDetailDTO struct {
+	UsageLogDTO
+	Messages         json.RawMessage `json:"messages,omitempty"`
+	ResponseBody     json.RawMessage `json:"response_body,omitempty"`
+	RawRequest       json.RawMessage `json:"raw_request,omitempty"`
+	RawResponse      json.RawMessage `json:"raw_response,omitempty"`
+	UpstreamRequest  json.RawMessage `json:"upstream_request,omitempty"`
+	UpstreamResponse json.RawMessage `json:"upstream_response,omitempty"`
+	IsDebug          bool            `json:"is_debug"`
+}
+
+func (l *UsageLog) ToDetailDTO() UsageLogDetailDTO {
+	return UsageLogDetailDTO{
+		UsageLogDTO:      l.ToDTO(),
+		Messages:         l.Messages,
+		ResponseBody:     l.ResponseBody,
+		RawRequest:       l.RawRequest,
+		RawResponse:      l.RawResponse,
+		UpstreamRequest:  l.UpstreamRequest,
+		UpstreamResponse: l.UpstreamResponse,
+		IsDebug:          l.IsDebug,
 	}
 }
 
@@ -141,10 +205,10 @@ type UsageLogListResponse struct {
 }
 
 type UsageSummaryResponse struct {
-	Summary        UsageSummary        `json:"summary"`
-	ByModel        []ModelUsageSummary `json:"by_model"`
-	PeriodStart    time.Time           `json:"period_start"`
-	PeriodEnd      time.Time           `json:"period_end"`
+	Summary     UsageSummary        `json:"summary"`
+	ByModel     []ModelUsageSummary `json:"by_model"`
+	PeriodStart time.Time           `json:"period_start"`
+	PeriodEnd   time.Time           `json:"period_end"`
 }
 
 // ============================================================================

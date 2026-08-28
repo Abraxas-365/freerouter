@@ -1,6 +1,8 @@
 package usagecontainer
 
 import (
+	"time"
+
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usageapi"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usageinfra"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagesrv"
@@ -14,8 +16,10 @@ type Container struct {
 
 func New(db *sqlx.DB, bufferSize int) *Container {
 	repo := usageinfra.NewPostgresUsageRepository(db)
+	retentionRepo := usageinfra.NewPostgresDataRetentionRepository(db)
 
-	service := usagesrv.NewUsageService(repo, bufferSize)
+	service := usagesrv.NewUsageService(repo, retentionRepo, bufferSize)
+	service.StartRetentionWorker(24 * time.Hour)
 	handlers := usageapi.NewUsageHandlers(service)
 
 	return &Container{

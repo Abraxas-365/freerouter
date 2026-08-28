@@ -38,8 +38,9 @@ const (
 	ScopeRateLimitsWrite = "rate-limits:write"
 
 	// Usage scopes
-	ScopeUsageAll  = "usage:*"
-	ScopeUsageRead = "usage:read"
+	ScopeUsageAll   = "usage:*"
+	ScopeUsageRead  = "usage:read"
+	ScopeUsageWrite = "usage:write"
 
 	// Guardrails scopes
 	ScopeGuardrailsAll   = "guardrails:*"
@@ -91,6 +92,7 @@ var DomainScopeCategories = map[string][]string{
 	"Usage": {
 		ScopeUsageAll,
 		ScopeUsageRead,
+		ScopeUsageWrite,
 	},
 	"Guardrails": {
 		ScopeGuardrailsAll,
@@ -134,8 +136,9 @@ var DomainScopeDescriptions = map[string]string{
 	ScopeRateLimitsRead:  "View rate limit configuration",
 	ScopeRateLimitsWrite: "Configure rate limits",
 
-	ScopeUsageAll:  "Full access to usage data",
-	ScopeUsageRead: "View usage logs",
+	ScopeUsageAll:   "Full access to usage data",
+	ScopeUsageRead:  "View usage logs",
+	ScopeUsageWrite: "Configure usage data retention policies",
 
 	ScopeGuardrailsAll:   "Full access to guardrails",
 	ScopeGuardrailsRead:  "View guardrail configuration",

@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway"
 	"github.com/Abraxas-365/freerouter/internal/ai/guardrails"
 	"github.com/Abraxas-365/freerouter/internal/ai/guardrails/guardrailssrv"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"
+	"github.com/Abraxas-365/freerouter/internal/ai/usage"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagesrv"
 	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
@@ -22,6 +24,52 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/webhook/webhooksrv"
 	"github.com/gofiber/fiber/v2"
 )
+
+// isDebugMode returns true if debug content logging should be enabled for
+// this request, either via the X-Debug header or the FORCE_DEBUG_MODE env var.
+func isDebugMode(c *fiber.Ctx) bool {
+	if c.Get("X-Debug") == "true" {
+		return true
+	}
+	return os.Getenv("FORCE_DEBUG_MODE") == "true"
+}
+
+// buildRequestContent builds the usage.RequestContent for a completed
+// non-streaming request. Messages and response body are always stored; the
+// raw/upstream payloads are only populated when debug mode is enabled.
+func buildRequestContent(c *fiber.Ctx, messages []gateway.Message, resp *gateway.ChatResponse, upstreamBody []byte) *usage.RequestContent {
+	messagesJSON, _ := json.Marshal(messages)
+	respJSON, _ := json.Marshal(resp)
+	content := &usage.RequestContent{
+		Messages:     messagesJSON,
+		ResponseBody: respJSON,
+		IsDebug:      isDebugMode(c),
+	}
+	if content.IsDebug {
+		content.RawRequest = json.RawMessage(c.Body())
+		content.UpstreamRequest = upstreamBody
+		content.UpstreamResponse = respJSON
+		content.RawResponse = respJSON
+	}
+	return content
+}
+
+// buildStreamRequestContent builds the usage.RequestContent for a completed
+// streaming request. Only the input messages are stored (no full response
+// body is available for streams); raw payloads are populated in debug mode.
+// isDebug and rawBody must be captured before entering the async stream
+// writer goroutine since the fiber.Ctx is not safe to use there.
+func buildStreamRequestContent(isDebug bool, rawBody []byte, messages []gateway.Message) *usage.RequestContent {
+	messagesJSON, _ := json.Marshal(messages)
+	content := &usage.RequestContent{
+		Messages: messagesJSON,
+		IsDebug:  isDebug,
+	}
+	if content.IsDebug {
+		content.RawRequest = json.RawMessage(rawBody)
+	}
+	return content
+}
 
 type GatewayHandlers struct {
 	router        *gateway.Router
@@ -298,7 +346,7 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "error", duration)
 				h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", statusCode))
 			}
-			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
+			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err, nil)
 			return err
 		}
 
@@ -330,13 +378,13 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 			}
 		}
 
-		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
+		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil, buildRequestContent(c, req.Messages, resp, body))
 		h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 		return c.JSON(resp)
 	}
 
 	// All retries exhausted
-	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr)
+	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr, nil)
 	h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	return lastErr
 }
@@ -346,6 +394,11 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
 	c.Set("Transfer-Encoding", "chunked")
+
+	// Capture debug mode + raw body before entering the async stream writer;
+	// the fiber.Ctx is not safe to use once the handler returns.
+	debugMode := isDebugMode(c)
+	rawBody := append([]byte(nil), c.Body()...)
 
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
 		streamCtx, streamCancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -399,7 +452,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 						defer dc()
 						h.billing.DebitUsage(debitCtx, tenantID, cost, "")
 					}
-					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr)
+					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr, nil)
 					return
 				}
 
@@ -432,7 +485,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 				errJSON, _ := json.Marshal(fiber.Map{"error": streamErr.Error()})
 				fmt.Fprintf(w, "data: %s\n\n", errJSON)
 				w.Flush()
-				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr)
+				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr, nil)
 				return
 			}
 
@@ -464,7 +517,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 				}
 			}
 
-			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil)
+			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil, buildStreamRequestContent(debugMode, rawBody, req.Messages))
 			h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 			return
 		}
@@ -474,7 +527,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 			errJSON, _ := json.Marshal(fiber.Map{"error": fmt.Sprintf("all %d stream attempts failed: %v", maxAttempts, lastErr)})
 			fmt.Fprintf(w, "data: %s\n\n", errJSON)
 			w.Flush()
-			h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr)
+			h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr, nil)
 			h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 		}
 	})

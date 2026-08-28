@@ -20,15 +20,15 @@ import (
 // ============================================================================
 
 type responsesRequest struct {
-	Model           string    `json:"model"`
-	Input           any       `json:"input"`            // string or []inputItem
-	Instructions    string    `json:"instructions,omitempty"`
-	MaxOutputTokens *int      `json:"max_output_tokens,omitempty"`
-	Temperature     *float64  `json:"temperature,omitempty"`
-	TopP            *float64  `json:"top_p,omitempty"`
-	Stream          bool      `json:"stream,omitempty"`
-	Tools           []any     `json:"tools,omitempty"`
-	ToolChoice      any       `json:"tool_choice,omitempty"`
+	Model           string         `json:"model"`
+	Input           any            `json:"input"` // string or []inputItem
+	Instructions    string         `json:"instructions,omitempty"`
+	MaxOutputTokens *int           `json:"max_output_tokens,omitempty"`
+	Temperature     *float64       `json:"temperature,omitempty"`
+	TopP            *float64       `json:"top_p,omitempty"`
+	Stream          bool           `json:"stream,omitempty"`
+	Tools           []any          `json:"tools,omitempty"`
+	ToolChoice      any            `json:"tool_choice,omitempty"`
 	Reasoning       *respReasoning `json:"reasoning,omitempty"`
 	Text            *respText      `json:"text,omitempty"`
 }
@@ -42,24 +42,24 @@ type respText struct {
 }
 
 type responsesResponse struct {
-	ID        string         `json:"id"`
-	Object    string         `json:"object"` // "response"
-	CreatedAt int64          `json:"created_at"`
-	Status    string         `json:"status"` // "completed", "incomplete", "failed"
-	Output    []respOutput   `json:"output"`
-	Model     string         `json:"model"`
-	Usage     *respUsage     `json:"usage,omitempty"`
+	ID        string       `json:"id"`
+	Object    string       `json:"object"` // "response"
+	CreatedAt int64        `json:"created_at"`
+	Status    string       `json:"status"` // "completed", "incomplete", "failed"
+	Output    []respOutput `json:"output"`
+	Model     string       `json:"model"`
+	Usage     *respUsage   `json:"usage,omitempty"`
 }
 
 type respOutput struct {
-	Type    string           `json:"type"` // "message", "function_call"
-	ID      string           `json:"id,omitempty"`
-	Role    string           `json:"role,omitempty"` // for message
-	Status  string           `json:"status"`
-	Content []respContent    `json:"content,omitempty"` // for message
-	CallID  string           `json:"call_id,omitempty"` // for function_call
-	Name    string           `json:"name,omitempty"`    // for function_call
-	Args    string           `json:"arguments,omitempty"` // for function_call
+	Type    string        `json:"type"` // "message", "function_call"
+	ID      string        `json:"id,omitempty"`
+	Role    string        `json:"role,omitempty"` // for message
+	Status  string        `json:"status"`
+	Content []respContent `json:"content,omitempty"`   // for message
+	CallID  string        `json:"call_id,omitempty"`   // for function_call
+	Name    string        `json:"name,omitempty"`      // for function_call
+	Args    string        `json:"arguments,omitempty"` // for function_call
 }
 
 type respContent struct {
@@ -180,7 +180,7 @@ func (h *GatewayHandlers) handleResponsesNonStreamWithRetry(c *fiber.Ctx, routes
 				time.Sleep(gateway.RetryDelay(attempt))
 				continue
 			}
-			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
+			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err, nil)
 			return err
 		}
 
@@ -193,7 +193,7 @@ func (h *GatewayHandlers) handleResponsesNonStreamWithRetry(c *fiber.Ctx, routes
 			}
 		}
 
-		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
+		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil, buildRequestContent(c, chatReq.Messages, resp, body))
 		h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 
 		if h.cache != nil {
@@ -205,7 +205,7 @@ func (h *GatewayHandlers) handleResponsesNonStreamWithRetry(c *fiber.Ctx, routes
 		return c.JSON(respAPI)
 	}
 
-	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr)
+	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr, nil)
 	h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	return lastErr
 }
@@ -214,6 +214,11 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
+
+	// Capture debug mode + raw body before entering the async stream writer;
+	// the fiber.Ctx is not safe to use once the handler returns.
+	debugMode := isDebugMode(c)
+	rawBody := append([]byte(nil), c.Body()...)
 
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
 		streamCtx, streamCancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -263,7 +268,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 					seqNum++
 					writeResponsesSSE(w, "response.content_part.added", map[string]any{
 						"output_index": 0, "content_index": 0,
-						"part": map[string]string{"type": "output_text", "text": ""},
+						"part":            map[string]string{"type": "output_text", "text": ""},
 						"sequence_number": seqNum,
 					})
 					seqNum++
@@ -302,13 +307,13 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 				if headersSent {
 					writeResponsesSSE(w, "response.content_part.done", map[string]any{
 						"output_index": 0, "content_index": 0,
-						"part": map[string]string{"type": "output_text", "text": ""},
+						"part":            map[string]string{"type": "output_text", "text": ""},
 						"sequence_number": seqNum,
 					})
 					seqNum++
 					writeResponsesSSE(w, "response.output_item.done", map[string]any{
-						"output_index": 0,
-						"item": map[string]any{"type": "message", "id": msgID, "role": "assistant", "status": "incomplete"},
+						"output_index":    0,
+						"item":            map[string]any{"type": "message", "id": msgID, "role": "assistant", "status": "incomplete"},
 						"sequence_number": seqNum,
 					})
 					seqNum++
@@ -330,7 +335,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 						defer dc()
 						h.billing.DebitUsage(dCtx, tenantID, cost, "")
 					}
-					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr)
+					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr, nil)
 					return
 				}
 
@@ -361,7 +366,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 					"sequence_number": 0,
 				}
 				writeResponsesSSE(w, "response.failed", errEvt)
-				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr)
+				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr, nil)
 				return
 			}
 
@@ -370,7 +375,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 
 			writeResponsesSSE(w, "response.content_part.done", map[string]any{
 				"output_index": 0, "content_index": 0,
-				"part": map[string]string{"type": "output_text", "text": ""},
+				"part":            map[string]string{"type": "output_text", "text": ""},
 				"sequence_number": seqNum,
 			})
 			seqNum++
@@ -380,8 +385,8 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 				status = "incomplete"
 			}
 			writeResponsesSSE(w, "response.output_item.done", map[string]any{
-				"output_index": 0,
-				"item": map[string]any{"type": "message", "id": msgID, "role": "assistant", "status": status},
+				"output_index":    0,
+				"item":            map[string]any{"type": "message", "id": msgID, "role": "assistant", "status": status},
 				"sequence_number": seqNum,
 			})
 			seqNum++
@@ -422,7 +427,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 				}
 			}
 
-			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil)
+			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil, buildStreamRequestContent(debugMode, rawBody, chatReq.Messages))
 			h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 			return
 		}
@@ -436,7 +441,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 			"sequence_number": 0,
 		}
 		writeResponsesSSE(w, "response.failed", errEvt)
-		h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr)
+		h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr, nil)
 		h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	})
 

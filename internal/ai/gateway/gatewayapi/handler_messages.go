@@ -21,17 +21,17 @@ import (
 // ============================================================================
 
 type anthropicMessagesRequest struct {
-	Model         string              `json:"model"`
-	Messages      []anthropicMsg      `json:"messages"`
-	System        any                 `json:"system,omitempty"` // string or []block
-	MaxTokens     int                 `json:"max_tokens"`
-	Temperature   *float64            `json:"temperature,omitempty"`
-	TopP          *float64            `json:"top_p,omitempty"`
-	Stream        bool                `json:"stream,omitempty"`
-	StopSequences any                 `json:"stop_sequences,omitempty"`
-	Tools         []anthropicToolDef  `json:"tools,omitempty"`
-	ToolChoice    any                 `json:"tool_choice,omitempty"`
-	Metadata      any                 `json:"metadata,omitempty"`
+	Model         string             `json:"model"`
+	Messages      []anthropicMsg     `json:"messages"`
+	System        any                `json:"system,omitempty"` // string or []block
+	MaxTokens     int                `json:"max_tokens"`
+	Temperature   *float64           `json:"temperature,omitempty"`
+	TopP          *float64           `json:"top_p,omitempty"`
+	Stream        bool               `json:"stream,omitempty"`
+	StopSequences any                `json:"stop_sequences,omitempty"`
+	Tools         []anthropicToolDef `json:"tools,omitempty"`
+	ToolChoice    any                `json:"tool_choice,omitempty"`
+	Metadata      any                `json:"metadata,omitempty"`
 }
 
 type anthropicMsg struct {
@@ -174,7 +174,7 @@ func (h *GatewayHandlers) handleAnthropicNonStreamWithRetry(c *fiber.Ctx, routes
 				time.Sleep(gateway.RetryDelay(attempt))
 				continue
 			}
-			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
+			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err, nil)
 			return anthropicError(c, http.StatusBadGateway, "api_error", err.Error())
 		}
 
@@ -187,7 +187,7 @@ func (h *GatewayHandlers) handleAnthropicNonStreamWithRetry(c *fiber.Ctx, routes
 			}
 		}
 
-		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
+		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil, buildRequestContent(c, chatReq.Messages, resp, body))
 		h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 
 		if h.cache != nil {
@@ -199,7 +199,7 @@ func (h *GatewayHandlers) handleAnthropicNonStreamWithRetry(c *fiber.Ctx, routes
 		return c.JSON(anthropicResp)
 	}
 
-	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr)
+	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr, nil)
 	h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	return anthropicError(c, http.StatusBadGateway, "api_error", lastErr.Error())
 }
@@ -208,6 +208,11 @@ func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
+
+	// Capture debug mode + raw body before entering the async stream writer;
+	// the fiber.Ctx is not safe to use once the handler returns.
+	debugMode := isDebugMode(c)
+	rawBody := append([]byte(nil), c.Body()...)
 
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
 		streamCtx, streamCancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -299,7 +304,7 @@ func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []
 						defer dc()
 						h.billing.DebitUsage(dCtx, tenantID, cost, "")
 					}
-					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr)
+					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr, nil)
 					return
 				}
 
@@ -325,7 +330,7 @@ func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []
 				errJSON, _ := json.Marshal(fiber.Map{"type": "error", "error": fiber.Map{"type": "api_error", "message": streamErr.Error()}})
 				fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
 				w.Flush()
-				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr)
+				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr, nil)
 				return
 			}
 
@@ -362,7 +367,7 @@ func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []
 				}
 			}
 
-			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil)
+			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil, buildStreamRequestContent(debugMode, rawBody, chatReq.Messages))
 			h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 			return
 		}
@@ -371,7 +376,7 @@ func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []
 		errJSON, _ := json.Marshal(fiber.Map{"type": "error", "error": fiber.Map{"type": "api_error", "message": fmt.Sprintf("all %d stream attempts failed: %v", maxAttempts, lastErr)}})
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
 		w.Flush()
-		h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr)
+		h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr, nil)
 		h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	})
 

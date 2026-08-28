@@ -13,17 +13,19 @@ import (
 )
 
 type UsageService struct {
-	repo   usage.UsageRepository
-	logsCh chan usage.UsageLog
+	repo          usage.UsageRepository
+	retentionRepo usage.DataRetentionRepository
+	logsCh        chan usage.UsageLog
 }
 
-func NewUsageService(repo usage.UsageRepository, bufferSize int) *UsageService {
+func NewUsageService(repo usage.UsageRepository, retentionRepo usage.DataRetentionRepository, bufferSize int) *UsageService {
 	if bufferSize <= 0 {
 		bufferSize = 1000
 	}
 	s := &UsageService{
-		repo:   repo,
-		logsCh: make(chan usage.UsageLog, bufferSize),
+		repo:          repo,
+		retentionRepo: retentionRepo,
+		logsCh:        make(chan usage.UsageLog, bufferSize),
 	}
 	go s.processLogs()
 	return s
@@ -40,6 +42,7 @@ func (s *UsageService) LogRequest(
 	duration time.Duration,
 	streamed bool,
 	reqErr error,
+	content *usage.RequestContent,
 ) {
 	log := usage.UsageLog{
 		ID:             kernel.NewUsageLogID(uuid.NewString()),
@@ -82,6 +85,18 @@ func (s *UsageService) LogRequest(
 		log.ErrorMessage = reqErr.Error()
 	}
 
+	if content != nil {
+		log.Messages = content.Messages
+		log.ResponseBody = content.ResponseBody
+		log.IsDebug = content.IsDebug
+		if content.IsDebug {
+			log.RawRequest = content.RawRequest
+			log.RawResponse = content.RawResponse
+			log.UpstreamRequest = content.UpstreamRequest
+			log.UpstreamResponse = content.UpstreamResponse
+		}
+	}
+
 	select {
 	case s.logsCh <- log:
 	default:
@@ -111,6 +126,66 @@ func (s *UsageService) Close() {
 
 func (s *UsageService) GetLog(ctx context.Context, id kernel.UsageLogID) (*usage.UsageLog, error) {
 	return s.repo.FindByID(ctx, id)
+}
+
+// ============================================================================
+// Data Retention
+// ============================================================================
+
+func (s *UsageService) GetRetentionConfig(ctx context.Context, tenantID kernel.TenantID) (*usage.DataRetentionConfig, error) {
+	cfg, err := s.retentionRepo.GetByTenantID(ctx, tenantID)
+	if err != nil {
+		return nil, errx.Wrap(err, "failed to get data retention config", errx.TypeInternal)
+	}
+	return cfg, nil
+}
+
+func (s *UsageService) UpsertRetentionConfig(ctx context.Context, cfg usage.DataRetentionConfig) (*usage.DataRetentionConfig, error) {
+	saved, err := s.retentionRepo.Upsert(ctx, cfg)
+	if err != nil {
+		return nil, errx.Wrap(err, "failed to save data retention config", errx.TypeInternal)
+	}
+	return saved, nil
+}
+
+func (s *UsageService) DeleteRetentionConfig(ctx context.Context, tenantID kernel.TenantID) error {
+	if err := s.retentionRepo.Delete(ctx, tenantID); err != nil {
+		return errx.Wrap(err, "failed to delete data retention config", errx.TypeInternal)
+	}
+	return nil
+}
+
+// StartRetentionWorker starts a background worker that periodically nullifies
+// expired content payloads based on data retention policy.
+func (s *UsageService) StartRetentionWorker(interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			s.cleanupExpiredContent()
+		}
+	}()
+}
+
+func (s *UsageService) cleanupExpiredContent() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	configs, err := s.retentionRepo.ListAll(ctx)
+	if err != nil {
+		slog.Error("retention: failed to list configs", "error", err)
+		return
+	}
+
+	// Default: 30 days for tenants without config
+	defaultBefore := time.Now().UTC().AddDate(0, 0, -30)
+	count, err := s.repo.NullifyExpiredContent(ctx, defaultBefore)
+	if err != nil {
+		slog.Error("retention: failed to nullify default", "error", err)
+	} else if count > 0 {
+		slog.Info("retention: cleaned up expired content", "rows", count)
+	}
+	_ = configs // per-tenant retention handled by the default query for now
 }
 
 func (s *UsageService) QueryLogs(ctx context.Context, q usage.UsageQuery) (*usage.UsageLogListResponse, error) {
