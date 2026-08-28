@@ -71,3 +71,15 @@ type GuardrailViolationID string
 func NewGuardrailViolationID(id string) GuardrailViolationID { return GuardrailViolationID(id) }
 func (g GuardrailViolationID) String() string                { return string(g) }
 func (g GuardrailViolationID) IsEmpty() bool                 { return string(g) == "" }
+
+type WebhookID string
+
+func NewWebhookID(id string) WebhookID { return WebhookID(id) }
+func (w WebhookID) String() string     { return string(w) }
+func (w WebhookID) IsEmpty() bool      { return string(w) == "" }
+
+type WebhookDeliveryID string
+
+func NewWebhookDeliveryID(id string) WebhookDeliveryID { return WebhookDeliveryID(id) }
+func (w WebhookDeliveryID) String() string             { return string(w) }
+func (w WebhookDeliveryID) IsEmpty() bool              { return string(w) == "" }

@@ -77,7 +77,7 @@ func (h *WebhookHandlers) ListEvents(c *fiber.Ctx) error {
 }
 
 func (h *WebhookHandlers) Get(c *fiber.Ctx) error {
-	w, err := h.service.Get(c.Context(), c.Params("id"))
+	w, err := h.service.Get(c.Context(), kernel.NewWebhookID(c.Params("id")))
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func (h *WebhookHandlers) Update(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
 
-	w, err := h.service.Update(c.Context(), c.Params("id"), req)
+	w, err := h.service.Update(c.Context(), kernel.NewWebhookID(c.Params("id")), req)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (h *WebhookHandlers) Update(c *fiber.Ctx) error {
 }
 
 func (h *WebhookHandlers) Delete(c *fiber.Ctx) error {
-	if err := h.service.Delete(c.Context(), c.Params("id")); err != nil {
+	if err := h.service.Delete(c.Context(), kernel.NewWebhookID(c.Params("id"))); err != nil {
 		return err
 	}
 	return c.JSON(fiber.Map{"message": "Webhook deleted"})
@@ -106,7 +106,7 @@ func (h *WebhookHandlers) Delete(c *fiber.Ctx) error {
 
 func (h *WebhookHandlers) ListDeliveries(c *fiber.Ctx) error {
 	limit := c.QueryInt("limit", 50)
-	deliveries, err := h.service.GetDeliveries(c.Context(), c.Params("id"), limit)
+	deliveries, err := h.service.GetDeliveries(c.Context(), kernel.NewWebhookID(c.Params("id")), limit)
 	if err != nil {
 		return err
 	}

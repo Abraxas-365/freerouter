@@ -19,9 +19,9 @@ func NewPostgresWebhookRepository(db *sqlx.DB) webhook.WebhookRepository {
 	return &PostgresWebhookRepository{db: db}
 }
 
-func (r *PostgresWebhookRepository) FindByID(ctx context.Context, id string) (*webhook.WebhookConfig, error) {
+func (r *PostgresWebhookRepository) FindByID(ctx context.Context, id kernel.WebhookID) (*webhook.WebhookConfig, error) {
 	var w webhookRow
-	err := r.db.GetContext(ctx, &w, `SELECT id, tenant_id, url, secret, events, enabled, created_at, updated_at FROM webhook_configs WHERE id = $1`, id)
+	err := r.db.GetContext(ctx, &w, `SELECT id, tenant_id, url, secret, events, enabled, created_at, updated_at FROM webhook_configs WHERE id = $1`, id.String())
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, webhook.ErrWebhookNotFound()
@@ -71,15 +71,15 @@ func (r *PostgresWebhookRepository) Save(ctx context.Context, w *webhook.Webhook
 			events = EXCLUDED.events,
 			enabled = EXCLUDED.enabled,
 			updated_at = NOW()
-	`, w.ID, w.TenantID.String(), w.URL, w.Secret, pq.Array(w.Events), w.Enabled, w.CreatedAt, w.UpdatedAt)
+	`, w.ID.String(), w.TenantID.String(), w.URL, w.Secret, pq.Array(w.Events), w.Enabled, w.CreatedAt, w.UpdatedAt)
 	if err != nil {
 		return errx.Wrap(err, "failed to save webhook", errx.TypeInternal)
 	}
 	return nil
 }
 
-func (r *PostgresWebhookRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM webhook_configs WHERE id = $1`, id)
+func (r *PostgresWebhookRepository) Delete(ctx context.Context, id kernel.WebhookID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM webhook_configs WHERE id = $1`, id.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to delete webhook", errx.TypeInternal)
 	}
@@ -94,7 +94,7 @@ func (r *PostgresWebhookRepository) SaveDelivery(ctx context.Context, d *webhook
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO webhook_deliveries (id, webhook_id, event_type, payload, status, status_code, attempts, last_error, next_retry_at, created_at, completed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-	`, d.ID, d.WebhookID, d.EventType, d.Payload, d.Status, d.StatusCode, d.Attempts, d.LastError, d.NextRetryAt, d.CreatedAt, d.CompletedAt)
+	`, d.ID.String(), d.WebhookID.String(), d.EventType, d.Payload, d.Status, d.StatusCode, d.Attempts, d.LastError, d.NextRetryAt, d.CreatedAt, d.CompletedAt)
 	if err != nil {
 		return errx.Wrap(err, "failed to save delivery", errx.TypeInternal)
 	}
@@ -107,7 +107,7 @@ func (r *PostgresWebhookRepository) UpdateDelivery(ctx context.Context, d *webho
 			status = $2, status_code = $3, attempts = $4, last_error = $5,
 			next_retry_at = $6, completed_at = $7
 		WHERE id = $1
-	`, d.ID, d.Status, d.StatusCode, d.Attempts, d.LastError, d.NextRetryAt, d.CompletedAt)
+	`, d.ID.String(), d.Status, d.StatusCode, d.Attempts, d.LastError, d.NextRetryAt, d.CompletedAt)
 	if err != nil {
 		return errx.Wrap(err, "failed to update delivery", errx.TypeInternal)
 	}
@@ -129,7 +129,7 @@ func (r *PostgresWebhookRepository) FindPendingDeliveries(ctx context.Context, l
 	return deliveries, nil
 }
 
-func (r *PostgresWebhookRepository) FindDeliveriesByWebhook(ctx context.Context, webhookID string, limit int) ([]*webhook.WebhookDelivery, error) {
+func (r *PostgresWebhookRepository) FindDeliveriesByWebhook(ctx context.Context, webhookID kernel.WebhookID, limit int) ([]*webhook.WebhookDelivery, error) {
 	var deliveries []*webhook.WebhookDelivery
 	err := r.db.SelectContext(ctx, &deliveries, `
 		SELECT id, webhook_id, event_type, payload, status, status_code, attempts, last_error, next_retry_at, created_at, completed_at
@@ -137,7 +137,7 @@ func (r *PostgresWebhookRepository) FindDeliveriesByWebhook(ctx context.Context,
 		WHERE webhook_id = $1
 		ORDER BY created_at DESC
 		LIMIT $2
-	`, webhookID, limit)
+	`, webhookID.String(), limit)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to find deliveries", errx.TypeInternal)
 	}
@@ -149,19 +149,19 @@ func (r *PostgresWebhookRepository) FindDeliveriesByWebhook(ctx context.Context,
 // ============================================================================
 
 type webhookRow struct {
-	ID        string          `db:"id"`
-	TenantID  string          `db:"tenant_id"`
-	URL       string          `db:"url"`
-	Secret    string          `db:"secret"`
-	Events    pq.StringArray  `db:"events"`
-	Enabled   bool            `db:"enabled"`
-	CreatedAt sql.NullTime    `db:"created_at"`
-	UpdatedAt sql.NullTime    `db:"updated_at"`
+	ID        string         `db:"id"`
+	TenantID  string         `db:"tenant_id"`
+	URL       string         `db:"url"`
+	Secret    string         `db:"secret"`
+	Events    pq.StringArray `db:"events"`
+	Enabled   bool           `db:"enabled"`
+	CreatedAt sql.NullTime   `db:"created_at"`
+	UpdatedAt sql.NullTime   `db:"updated_at"`
 }
 
 func (r *webhookRow) toEntity() *webhook.WebhookConfig {
 	w := &webhook.WebhookConfig{
-		ID:       r.ID,
+		ID:       kernel.NewWebhookID(r.ID),
 		TenantID: kernel.NewTenantID(r.TenantID),
 		URL:      r.URL,
 		Secret:   r.Secret,

@@ -13,8 +13,8 @@ import (
 // ============================================================================
 
 type WebhookConfig struct {
-	ID        string          `db:"id" json:"id"`
-	TenantID  kernel.TenantID `db:"tenant_id" json:"tenant_id"`
+	ID        kernel.WebhookID `db:"id" json:"id"`
+	TenantID  kernel.TenantID  `db:"tenant_id" json:"tenant_id"`
 	URL       string          `db:"url" json:"url"`
 	Secret    string          `db:"secret" json:"-"` // never exposed in API
 	Events    []string        `db:"events" json:"events"`
@@ -64,8 +64,8 @@ const (
 )
 
 type WebhookDelivery struct {
-	ID          string         `db:"id" json:"id"`
-	WebhookID   string         `db:"webhook_id" json:"webhook_id"`
+	ID          kernel.WebhookDeliveryID `db:"id" json:"id"`
+	WebhookID   kernel.WebhookID         `db:"webhook_id" json:"webhook_id"`
 	EventType   string         `db:"event_type" json:"event_type"`
 	Payload     string         `db:"payload" json:"payload"`
 	Status      DeliveryStatus `db:"status" json:"status"`

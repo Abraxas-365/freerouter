@@ -73,7 +73,7 @@ func (s *WebhookService) Stop() {
 func (s *WebhookService) Create(ctx context.Context, tenantID kernel.TenantID, req webhook.CreateWebhookRequest) (*webhook.WebhookConfig, error) {
 	secret := generateSecret()
 	w := &webhook.WebhookConfig{
-		ID:        uuid.NewString(),
+		ID:        kernel.NewWebhookID(uuid.NewString()),
 		TenantID:  tenantID,
 		URL:       req.URL,
 		Secret:    secret,
@@ -88,7 +88,7 @@ func (s *WebhookService) Create(ctx context.Context, tenantID kernel.TenantID, r
 	return w, nil
 }
 
-func (s *WebhookService) Get(ctx context.Context, id string) (*webhook.WebhookConfig, error) {
+func (s *WebhookService) Get(ctx context.Context, id kernel.WebhookID) (*webhook.WebhookConfig, error) {
 	return s.repo.FindByID(ctx, id)
 }
 
@@ -96,7 +96,7 @@ func (s *WebhookService) List(ctx context.Context, tenantID kernel.TenantID) ([]
 	return s.repo.FindByTenant(ctx, tenantID)
 }
 
-func (s *WebhookService) Update(ctx context.Context, id string, req webhook.UpdateWebhookRequest) (*webhook.WebhookConfig, error) {
+func (s *WebhookService) Update(ctx context.Context, id kernel.WebhookID, req webhook.UpdateWebhookRequest) (*webhook.WebhookConfig, error) {
 	w, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -117,11 +117,11 @@ func (s *WebhookService) Update(ctx context.Context, id string, req webhook.Upda
 	return w, nil
 }
 
-func (s *WebhookService) Delete(ctx context.Context, id string) error {
+func (s *WebhookService) Delete(ctx context.Context, id kernel.WebhookID) error {
 	return s.repo.Delete(ctx, id)
 }
 
-func (s *WebhookService) GetDeliveries(ctx context.Context, webhookID string, limit int) ([]*webhook.WebhookDelivery, error) {
+func (s *WebhookService) GetDeliveries(ctx context.Context, webhookID kernel.WebhookID, limit int) ([]*webhook.WebhookDelivery, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -160,7 +160,7 @@ func (s *WebhookService) Fire(tenantID kernel.TenantID, event string, data any) 
 
 		for _, cfg := range configs {
 			delivery := &webhook.WebhookDelivery{
-				ID:        uuid.NewString(),
+				ID:        kernel.NewWebhookDeliveryID(uuid.NewString()),
 				WebhookID: cfg.ID,
 				EventType: event,
 				Payload:   string(payloadJSON),
@@ -199,7 +199,7 @@ func (s *WebhookService) deliver(cfg *webhook.WebhookConfig, d *webhook.WebhookD
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Webhook-ID", d.WebhookID)
+	req.Header.Set("X-Webhook-ID", d.WebhookID.String())
 	req.Header.Set("X-Webhook-Signature", sig)
 	req.Header.Set("X-Webhook-Event", d.EventType)
 
@@ -290,3 +290,4 @@ func generateSecret() string {
 	mac.Write([]byte(time.Now().String()))
 	return "whsec_" + hex.EncodeToString(mac.Sum(nil))[:32]
 }
+
