@@ -41,10 +41,10 @@ func (r *PostgresAPIKeyRepository) create(ctx context.Context, key apikey.APIKey
 	query := `
 		INSERT INTO api_keys (
 			id, key_hash, key_prefix, tenant_id, user_id, name, description,
-			scopes, is_active, expires_at, last_used_at, created_at, updated_at
+			scopes, allowed_models, is_active, expires_at, last_used_at, created_at, updated_at
 		) VALUES (
 			:id, :key_hash, :key_prefix, :tenant_id, :user_id, :name, :description,
-			:scopes, :is_active, :expires_at, :last_used_at, :created_at, :updated_at
+			:scopes, :allowed_models, :is_active, :expires_at, :last_used_at, :created_at, :updated_at
 		)`
 
 	keyWithPGArray := toPersistence(key)
@@ -66,6 +66,7 @@ func (r *PostgresAPIKeyRepository) update(ctx context.Context, key apikey.APIKey
 			name = :name,
 			description = :description,
 			scopes = :scopes,
+			allowed_models = :allowed_models,
 			is_active = :is_active,
 			expires_at = :expires_at,
 			last_used_at = :last_used_at,
@@ -197,56 +198,59 @@ func (r *PostgresAPIKeyRepository) keyExists(ctx context.Context, id string) (bo
 
 // apiKeyPersistence is the persistence model with DB-specific types.
 type apiKeyPersistence struct {
-	ID          string          `db:"id"`
-	KeyHash     string          `db:"key_hash"`
-	KeyPrefix   string          `db:"key_prefix"`
-	TenantID    kernel.TenantID `db:"tenant_id"`
-	UserID      *kernel.UserID  `db:"user_id"`
-	Name        string          `db:"name"`
-	Description sql.NullString  `db:"description"`
-	Scopes      pq.StringArray  `db:"scopes"`
-	IsActive    bool            `db:"is_active"`
-	ExpiresAt   *time.Time      `db:"expires_at"`
-	LastUsedAt  *time.Time      `db:"last_used_at"`
-	CreatedAt   time.Time       `db:"created_at"`
-	UpdatedAt   time.Time       `db:"updated_at"`
+	ID            string          `db:"id"`
+	KeyHash       string          `db:"key_hash"`
+	KeyPrefix     string          `db:"key_prefix"`
+	TenantID      kernel.TenantID `db:"tenant_id"`
+	UserID        *kernel.UserID  `db:"user_id"`
+	Name          string          `db:"name"`
+	Description   sql.NullString  `db:"description"`
+	Scopes        pq.StringArray  `db:"scopes"`
+	AllowedModels pq.StringArray  `db:"allowed_models"`
+	IsActive      bool            `db:"is_active"`
+	ExpiresAt     *time.Time      `db:"expires_at"`
+	LastUsedAt    *time.Time      `db:"last_used_at"`
+	CreatedAt     time.Time       `db:"created_at"`
+	UpdatedAt     time.Time       `db:"updated_at"`
 }
 
 // toPersistence converts the domain model to a persistence model.
 func toPersistence(key apikey.APIKey) apiKeyPersistence {
 	return apiKeyPersistence{
-		ID:          key.ID,
-		KeyHash:     key.KeyHash,
-		KeyPrefix:   key.KeyPrefix,
-		TenantID:    key.TenantID,
-		UserID:      key.UserID,
-		Name:        key.Name,
-		Description: sql.NullString{String: key.Description, Valid: key.Description != ""},
-		Scopes:      key.Scopes,
-		IsActive:    key.IsActive,
-		ExpiresAt:   key.ExpiresAt,
-		LastUsedAt:  key.LastUsedAt,
-		CreatedAt:   key.CreatedAt,
-		UpdatedAt:   key.UpdatedAt,
+		ID:            key.ID,
+		KeyHash:       key.KeyHash,
+		KeyPrefix:     key.KeyPrefix,
+		TenantID:      key.TenantID,
+		UserID:        key.UserID,
+		Name:          key.Name,
+		Description:   sql.NullString{String: key.Description, Valid: key.Description != ""},
+		Scopes:        key.Scopes,
+		AllowedModels: key.AllowedModels,
+		IsActive:      key.IsActive,
+		ExpiresAt:     key.ExpiresAt,
+		LastUsedAt:    key.LastUsedAt,
+		CreatedAt:     key.CreatedAt,
+		UpdatedAt:     key.UpdatedAt,
 	}
 }
 
 // toDomain converts the persistence model to the domain model.
 func toDomain(p apiKeyPersistence) apikey.APIKey {
 	return apikey.APIKey{
-		ID:          p.ID,
-		KeyHash:     p.KeyHash,
-		KeyPrefix:   p.KeyPrefix,
-		TenantID:    p.TenantID,
-		UserID:      p.UserID,
-		Name:        p.Name,
-		Description: p.Description.String,
-		Scopes:      p.Scopes,
-		IsActive:    p.IsActive,
-		ExpiresAt:   p.ExpiresAt,
-		LastUsedAt:  p.LastUsedAt,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
+		ID:            p.ID,
+		KeyHash:       p.KeyHash,
+		KeyPrefix:     p.KeyPrefix,
+		TenantID:      p.TenantID,
+		UserID:        p.UserID,
+		Name:          p.Name,
+		Description:   p.Description.String,
+		Scopes:        p.Scopes,
+		AllowedModels: p.AllowedModels,
+		IsActive:      p.IsActive,
+		ExpiresAt:     p.ExpiresAt,
+		LastUsedAt:    p.LastUsedAt,
+		CreatedAt:     p.CreatedAt,
+		UpdatedAt:     p.UpdatedAt,
 	}
 }
 

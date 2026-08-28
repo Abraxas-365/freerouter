@@ -37,6 +37,11 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 
 	requestedModel := req.Model
 
+	// Per-key model restriction
+	if err := h.checkModelAccess(authCtx, requestedModel); err != nil {
+		return err
+	}
+
 	// Record request metric
 	if h.metrics != nil {
 		h.metrics.ObserveRequest(requestedModel, "", "images", "started", 0)

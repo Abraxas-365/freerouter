@@ -263,6 +263,12 @@ func (s *Suite) startMockUpstream() *httptest.Server {
 			return
 		}
 
+		// Embeddings endpoint
+		if strings.HasSuffix(r.URL.Path, "/embeddings") {
+			s.respondEmbedding(w)
+			return
+		}
+
 		// Check if streaming
 		body, _ := io.ReadAll(r.Body)
 		var req map[string]any
@@ -338,6 +344,24 @@ func (s *Suite) respondImageGeneration(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func (s *Suite) respondEmbedding(w http.ResponseWriter) {
+	resp := map[string]any{
+		"object": "list",
+		"data": []map[string]any{{
+			"object":    "embedding",
+			"embedding": []float64{0.1, 0.2, 0.3, 0.4, 0.5},
+			"index":     0,
+		}},
+		"model": "text-embedding-3-small",
+		"usage": map[string]any{
+			"prompt_tokens": 8,
+			"total_tokens":  8,
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 func (s *Suite) initContainers() {
 	apikey.InitAPIKeyConfig(
 		s.Config.Auth.APIKey.LivePrefix,
@@ -399,6 +423,7 @@ func (s *Suite) seedTestData() {
 		"billing:read", "billing:write", "billing:admin",
 		"usage:read",
 		"api_key:read", "api_key:write",
+		"api_keys:read", "api_keys:write", "api_keys:delete",
 		"provider-keys:read", "provider-keys:write", "provider-keys:delete",
 		"rate-limits:read", "rate-limits:write",
 		"webhooks:read", "webhooks:write",
@@ -508,6 +533,9 @@ func (s *Suite) buildApp() {
 
 	// Webhook routes
 	s.Webhook.Handlers.RegisterRoutes(protected, s.IAM.UnifiedAuthMiddleware)
+
+	// IAM API key routes
+	s.IAM.APIKeyHandlers.RegisterRoutes(protected, s.IAM.UnifiedAuthMiddleware)
 
 	// Wire webhooks into gateway
 	s.AI.Gateway.Handlers.SetWebhooks(s.Webhook.Service)

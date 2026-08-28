@@ -193,6 +193,46 @@ func (u *Upstream) CallImage(ctx context.Context, route *RouteResult, body []byt
 	return &imageResp, resp.StatusCode, nil
 }
 
+// CallEmbedding makes a non-streaming request to the upstream provider's
+// embeddings endpoint. Proxied directly in OpenAI-compatible format.
+func (u *Upstream) CallEmbedding(ctx context.Context, route *RouteResult, body []byte) (*EmbeddingResponse, int, error) {
+	url := strings.TrimSuffix(route.BaseURL, "/") + "/embeddings"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, errx.Wrap(err, "failed to build embedding request", errx.TypeInternal)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	setAuthHeaders(req, route)
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return nil, 0, errx.Wrap(err, "upstream embedding request failed", errx.TypeInternal).
+			WithDetail("provider", route.ProviderID)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, errx.Wrap(err, "failed to read upstream embedding response", errx.TypeInternal)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode, errx.New(
+			fmt.Sprintf("upstream returned %d: %s", resp.StatusCode, string(respBody)),
+			errx.TypeInternal,
+		).WithDetail("provider", route.ProviderID).
+			WithDetail("status", fmt.Sprintf("%d", resp.StatusCode))
+	}
+
+	var embResp EmbeddingResponse
+	if err := json.Unmarshal(respBody, &embResp); err != nil {
+		return nil, resp.StatusCode, errx.Wrap(err, "failed to parse embedding response", errx.TypeInternal)
+	}
+
+	return &embResp, resp.StatusCode, nil
+}
+
 func (u *Upstream) buildRequest(ctx context.Context, route *RouteResult, body []byte, stream bool) (*http.Request, error) {
 	url := buildUpstreamURL(route, stream)
 

@@ -105,6 +105,11 @@ func (h *GatewayHandlers) Responses(c *fiber.Ctx) error {
 
 	requestedModel := req.Model
 
+	// Per-key model restriction
+	if err := h.checkModelAccess(authCtx, requestedModel); err != nil {
+		return err
+	}
+
 	// Guardrails: check input before routing
 	if h.guardrails != nil {
 		texts := extractResponsesTexts(&req)

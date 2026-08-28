@@ -80,18 +80,19 @@ func (s *APIKeyService) CreateAPIKey(
 	}
 
 	newKey := apikey.APIKey{
-		ID:          uuid.NewString(),
-		KeyHash:     apikey.HashAPIKey(generated.Key),
-		KeyPrefix:   generated.KeyPrefix,
-		TenantID:    tenantID,
-		UserID:      req.UserID,
-		Name:        req.Name,
-		Description: req.Description,
-		Scopes:      req.Scopes,
-		IsActive:    true,
-		ExpiresAt:   expiresAt,
-		CreatedAt:   time.Now().UTC(),
-		UpdatedAt:   time.Now().UTC(),
+		ID:            uuid.NewString(),
+		KeyHash:       apikey.HashAPIKey(generated.Key),
+		KeyPrefix:     generated.KeyPrefix,
+		TenantID:      tenantID,
+		UserID:        req.UserID,
+		Name:          req.Name,
+		Description:   req.Description,
+		Scopes:        req.Scopes,
+		AllowedModels: req.AllowedModels,
+		IsActive:      true,
+		ExpiresAt:     expiresAt,
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
 	}
 
 	if err := s.apiKeyRepo.Save(ctx, newKey); err != nil {
@@ -161,6 +162,9 @@ func (s *APIKeyService) UpdateAPIKey(
 			return nil, err
 		}
 		key.Scopes = req.Scopes
+	}
+	if req.AllowedModels != nil {
+		key.AllowedModels = req.AllowedModels
 	}
 	if req.IsActive != nil {
 		key.IsActive = *req.IsActive

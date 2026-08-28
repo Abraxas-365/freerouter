@@ -45,10 +45,11 @@ func (am *UnifiedAuthMiddleware) authenticateAPIKey(c *fiber.Ctx, keyString stri
 	}
 
 	authContext := &kernel.AuthContext{
-		UserID:   key.UserID,
-		TenantID: key.TenantID,
-		Scopes:   key.Scopes,
-		IsAPIKey: true,
+		UserID:        key.UserID,
+		TenantID:      key.TenantID,
+		Scopes:        key.Scopes,
+		AllowedModels: key.AllowedModels,
+		IsAPIKey:      true,
 	}
 
 	c.Locals("auth", authContext)

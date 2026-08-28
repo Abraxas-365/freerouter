@@ -119,6 +119,20 @@ func (h *GatewayHandlers) SetWebhooks(ws *webhooksrv.WebhookService) {
 	h.webhooks = ws
 }
 
+// checkModelAccess verifies that the API key (if used) is allowed to access
+// the requested model. If AllowedModels is empty, all models are allowed.
+func (h *GatewayHandlers) checkModelAccess(authCtx *kernel.AuthContext, model string) error {
+	if !authCtx.IsAPIKey || len(authCtx.AllowedModels) == 0 {
+		return nil
+	}
+	for _, m := range authCtx.AllowedModels {
+		if m == model {
+			return nil
+		}
+	}
+	return fiber.NewError(fiber.StatusForbidden, fmt.Sprintf("model %q is not allowed for this API key", model))
+}
+
 func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	v1 := router.Group("/v1", authMiddleware.Authenticate())
 	v1.Get("/models", authMiddleware.RequireScope(scopes.ScopeGatewayRead), h.ListModels)
@@ -126,6 +140,7 @@ func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 	v1.Post("/messages", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.AnthropicMessages)
 	v1.Post("/responses", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Responses)
 	v1.Post("/images/generations", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.ImageGeneration)
+	v1.Post("/embeddings", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Embeddings)
 	v1.Post("/cost/estimate", authMiddleware.RequireScope(scopes.ScopeGatewayRead), h.EstimateCost)
 }
 
@@ -242,6 +257,11 @@ func (h *GatewayHandlers) ChatCompletions(c *fiber.Ctx) error {
 	}
 
 	requestedModel := req.Model
+
+	// Per-key model restriction
+	if err := h.checkModelAccess(authCtx, requestedModel); err != nil {
+		return err
+	}
 
 	// Guardrails: check messages before routing
 	if h.guardrails != nil {

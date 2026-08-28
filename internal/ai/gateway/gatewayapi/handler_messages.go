@@ -105,6 +105,11 @@ func (h *GatewayHandlers) AnthropicMessages(c *fiber.Ctx) error {
 
 	requestedModel := req.Model
 
+	// Per-key model restriction
+	if err := h.checkModelAccess(authCtx, requestedModel); err != nil {
+		return err
+	}
+
 	// Guardrails: check messages before routing
 	if h.guardrails != nil {
 		texts := extractAnthropicTexts(req.Messages)

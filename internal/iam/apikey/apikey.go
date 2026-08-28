@@ -23,6 +23,7 @@ type APIKey struct {
 	Name        string          `db:"name" json:"name"`
 	Description string          `db:"description" json:"description,omitempty"`
 	Scopes      []string        `db:"scopes" json:"scopes"`
+	AllowedModels []string      `db:"allowed_models" json:"allowed_models,omitempty"`
 	IsActive    bool            `db:"is_active" json:"is_active"`
 	ExpiresAt   *time.Time      `db:"expires_at" json:"expires_at,omitempty"`
 	LastUsedAt  *time.Time      `db:"last_used_at" json:"last_used_at,omitempty"`
@@ -114,6 +115,7 @@ type APIKeyDTO struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	Scopes      []string        `json:"scopes"`
+	AllowedModels []string      `json:"allowed_models,omitempty"`
 	IsActive    bool            `json:"is_active"`
 	ExpiresAt   *time.Time      `json:"expires_at,omitempty"`
 	LastUsedAt  *time.Time      `json:"last_used_at,omitempty"`
@@ -122,27 +124,29 @@ type APIKeyDTO struct {
 
 func (k *APIKey) ToDTO() APIKeyDTO {
 	return APIKeyDTO{
-		ID:          k.ID,
-		KeyPrefix:   k.KeyPrefix,
-		TenantID:    k.TenantID,
-		UserID:      k.UserID,
-		Name:        k.Name,
-		Description: k.Description,
-		Scopes:      k.Scopes,
-		IsActive:    k.IsActive,
-		ExpiresAt:   k.ExpiresAt,
-		LastUsedAt:  k.LastUsedAt,
-		CreatedAt:   k.CreatedAt,
+		ID:            k.ID,
+		KeyPrefix:     k.KeyPrefix,
+		TenantID:      k.TenantID,
+		UserID:        k.UserID,
+		Name:          k.Name,
+		Description:   k.Description,
+		Scopes:        k.Scopes,
+		AllowedModels: k.AllowedModels,
+		IsActive:      k.IsActive,
+		ExpiresAt:     k.ExpiresAt,
+		LastUsedAt:    k.LastUsedAt,
+		CreatedAt:     k.CreatedAt,
 	}
 }
 
 type CreateAPIKeyRequest struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Scopes      []string       `json:"scopes"`
-	ExpiresIn   *int           `json:"expires_in"` // Days until expiration
-	Environment string         `json:"environment"`
-	UserID      *kernel.UserID `json:"user_id"` // Optional: associate with specific user
+	Name          string         `json:"name"`
+	Description   string         `json:"description"`
+	Scopes        []string       `json:"scopes"`
+	AllowedModels []string       `json:"allowed_models,omitempty"`
+	ExpiresIn     *int           `json:"expires_in"` // Days until expiration
+	Environment   string         `json:"environment"`
+	UserID        *kernel.UserID `json:"user_id"` // Optional: associate with specific user
 }
 
 func (r *CreateAPIKeyRequest) Validate() error {
@@ -165,10 +169,11 @@ type CreateAPIKeyResponse struct {
 }
 
 type UpdateAPIKeyRequest struct {
-	Name        *string  `json:"name,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	Scopes      []string `json:"scopes,omitempty"`
-	IsActive    *bool    `json:"is_active,omitempty"`
+	Name          *string  `json:"name,omitempty"`
+	Description   *string  `json:"description,omitempty"`
+	Scopes        []string `json:"scopes,omitempty"`
+	AllowedModels []string `json:"allowed_models,omitempty"`
+	IsActive      *bool    `json:"is_active,omitempty"`
 }
 
 func (r *UpdateAPIKeyRequest) Validate() error {

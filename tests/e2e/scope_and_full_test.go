@@ -1360,3 +1360,330 @@ func TestImageGeneration(t *testing.T) {
 		assertForbidden(t, resp, body)
 	})
 }
+
+// createAPIKeyWithScopesAndModels creates an API key with specific scopes
+// and allowed_models restriction. Empty/nil allowedModels means all models allowed.
+func (s *Suite) createAPIKeyWithScopesAndModels(scopes []string, allowedModels []string) string {
+	rawKey := make([]byte, 32)
+	rand.Read(rawKey)
+	keySecret := hex.EncodeToString(rawKey)
+	rawAPIKey := fmt.Sprintf("fr_live_%s", keySecret)
+	keyHash := apikey.HashAPIKey(rawAPIKey)
+
+	if allowedModels == nil {
+		allowedModels = []string{}
+	}
+
+	now := time.Now().UTC()
+	_, err := s.DB.ExecContext(s.T.Context(),
+		`INSERT INTO api_keys (id, key_hash, key_prefix, tenant_id, user_id, name, scopes, allowed_models, is_active, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		uuid.NewString(),
+		keyHash,
+		fmt.Sprintf("fr_live_%s...", keySecret[:8]),
+		s.TenantID.String(),
+		s.UserID.String(),
+		"Model-Restricted Key",
+		pq.Array(scopes),
+		pq.Array(allowedModels),
+		true,
+		now, now,
+	)
+	if err != nil {
+		s.T.Fatalf("failed to create model-restricted API key: %v", err)
+	}
+	return rawAPIKey
+}
+
+// ============================================================================
+// Test: Embeddings Endpoint
+// ============================================================================
+
+func TestEmbeddingsEndpoint(t *testing.T) {
+	s := NewSuite(t)
+
+	// Seed an embedding model and mapping
+	_, err := s.DB.ExecContext(s.T.Context(),
+		`INSERT INTO models (id, name, family, stability, status) VALUES ('text-embedding-3-small', 'Text Embedding 3 Small', 'openai', 'stable', 'active')
+		 ON CONFLICT (id) DO NOTHING`)
+	if err != nil {
+		t.Fatalf("failed to seed embedding model: %v", err)
+	}
+	_, err = s.DB.ExecContext(s.T.Context(),
+		`INSERT INTO model_provider_mappings (id, model_id, provider_id, external_id, input_price, output_price, context_size, max_output, streaming, vision, reasoning, tools, json_output)
+		 VALUES ('map-emb-small', 'text-embedding-3-small', 'openai', 'text-embedding-3-small', 0.02, 0, 8191, 0, false, false, false, false, false)
+		 ON CONFLICT (id) DO NOTHING`)
+	if err != nil {
+		t.Fatalf("failed to seed embedding mapping: %v", err)
+	}
+
+	t.Run("generate embedding", func(t *testing.T) {
+		req := s.Request("POST", "/v1/embeddings", map[string]any{
+			"model": "text-embedding-3-small",
+			"input": "The food was delicious",
+		})
+		var result map[string]any
+		resp := s.DoJSON(req, &result)
+		if resp.StatusCode != http.StatusOK {
+			body, _ := json.Marshal(result)
+			t.Fatalf("expected 200, got %d, body: %s", resp.StatusCode, body)
+		}
+		if result["object"] != "list" {
+			t.Fatalf("expected object=list, got %v", result["object"])
+		}
+		data, ok := result["data"].([]any)
+		if !ok || len(data) == 0 {
+			t.Fatal("expected at least one embedding in response")
+		}
+		emb := data[0].(map[string]any)
+		if emb["object"] != "embedding" {
+			t.Fatalf("expected embedding object, got %v", emb["object"])
+		}
+		embedding, ok := emb["embedding"].([]any)
+		if !ok || len(embedding) == 0 {
+			t.Fatal("expected non-empty embedding vector")
+		}
+	})
+
+	t.Run("missing input returns 400", func(t *testing.T) {
+		req := s.Request("POST", "/v1/embeddings", map[string]any{
+			"model": "text-embedding-3-small",
+		})
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("missing model returns 400", func(t *testing.T) {
+		req := s.Request("POST", "/v1/embeddings", map[string]any{
+			"input": "test",
+		})
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("billing debits for embeddings", func(t *testing.T) {
+		// Get balance before
+		balReq := s.Request("GET", "/api/v1/billing/balance", nil)
+		var balBefore map[string]any
+		s.DoJSON(balReq, &balBefore)
+		before := balBefore["balance"].(float64)
+
+		// Make embedding request
+		req := s.Request("POST", "/v1/embeddings", map[string]any{
+			"model": "text-embedding-3-small",
+			"input": "billing test",
+		})
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+
+		// Brief pause for async billing
+		time.Sleep(100 * time.Millisecond)
+
+		// Get balance after
+		balReq = s.Request("GET", "/api/v1/billing/balance", nil)
+		var balAfter map[string]any
+		s.DoJSON(balReq, &balAfter)
+		after := balAfter["balance"].(float64)
+
+		if after > before {
+			t.Fatalf("balance should have decreased: before=%f after=%f", before, after)
+		}
+		t.Logf("embedding billing: balance before=%f after=%f", before, after)
+	})
+
+	t.Run("scope enforcement", func(t *testing.T) {
+		key := s.createAPIKeyWithScopes([]string{"billing:read"}) // no gateway:chat
+		req := s.requestWith(key, "POST", "/v1/embeddings", map[string]any{
+			"model": "text-embedding-3-small",
+			"input": "test",
+		})
+		resp, body := s.Do(req)
+		assertForbidden(t, resp, body)
+	})
+}
+
+// ============================================================================
+// Test: Per-key Model Restrictions
+// ============================================================================
+
+func TestPerKeyModelRestrictions(t *testing.T) {
+	s := NewSuite(t)
+
+	// Seed models
+	_, err := s.DB.ExecContext(s.T.Context(),
+		`INSERT INTO models (id, name, family, stability, status) VALUES ('text-embedding-3-small', 'Text Embedding 3 Small', 'openai', 'stable', 'active')
+		 ON CONFLICT (id) DO NOTHING`)
+	if err != nil {
+		t.Fatalf("failed to seed embedding model: %v", err)
+	}
+	_, err = s.DB.ExecContext(s.T.Context(),
+		`INSERT INTO model_provider_mappings (id, model_id, provider_id, external_id, input_price, output_price, context_size, max_output, streaming, vision, reasoning, tools, json_output)
+		 VALUES ('map-emb-small-2', 'text-embedding-3-small', 'openai', 'text-embedding-3-small', 0.02, 0, 8191, 0, false, false, false, false, false)
+		 ON CONFLICT (id) DO NOTHING`)
+	if err != nil {
+		t.Fatalf("failed to seed embedding mapping: %v", err)
+	}
+
+	t.Run("key with no model restrictions allows all models", func(t *testing.T) {
+		key := s.createAPIKeyWithScopesAndModels(
+			[]string{"gateway:read", "gateway:chat"},
+			nil, // no restrictions
+		)
+		req := s.requestWith(key, "POST", "/v1/chat/completions", map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		})
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 (no restrictions), got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("key restricted to gpt-4o allows gpt-4o", func(t *testing.T) {
+		key := s.createAPIKeyWithScopesAndModels(
+			[]string{"gateway:read", "gateway:chat"},
+			[]string{"gpt-4o"},
+		)
+		req := s.requestWith(key, "POST", "/v1/chat/completions", map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		})
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 (model allowed), got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("key restricted to gpt-4o blocks other models", func(t *testing.T) {
+		key := s.createAPIKeyWithScopesAndModels(
+			[]string{"gateway:read", "gateway:chat"},
+			[]string{"gpt-4o"},
+		)
+		req := s.requestWith(key, "POST", "/v1/embeddings", map[string]any{
+			"model": "text-embedding-3-small",
+			"input": "test",
+		})
+		resp, body := s.Do(req)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("expected 403 (model not allowed), got %d, body: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("key restricted to embedding model allows embeddings", func(t *testing.T) {
+		key := s.createAPIKeyWithScopesAndModels(
+			[]string{"gateway:read", "gateway:chat"},
+			[]string{"text-embedding-3-small"},
+		)
+		req := s.requestWith(key, "POST", "/v1/embeddings", map[string]any{
+			"model": "text-embedding-3-small",
+			"input": "hello world",
+		})
+		resp, body := s.Do(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d, body: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("key restricted to embedding model blocks chat", func(t *testing.T) {
+		key := s.createAPIKeyWithScopesAndModels(
+			[]string{"gateway:read", "gateway:chat"},
+			[]string{"text-embedding-3-small"},
+		)
+		req := s.requestWith(key, "POST", "/v1/chat/completions", map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		})
+		resp, body := s.Do(req)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("expected 403 (model not allowed), got %d, body: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("key with multiple allowed models", func(t *testing.T) {
+		key := s.createAPIKeyWithScopesAndModels(
+			[]string{"gateway:read", "gateway:chat"},
+			[]string{"gpt-4o", "text-embedding-3-small"},
+		)
+
+		// Chat should work
+		chatReq := s.requestWith(key, "POST", "/v1/chat/completions", map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		})
+		resp, _ := s.Do(chatReq)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for gpt-4o, got %d", resp.StatusCode)
+		}
+
+		// Embeddings should work
+		embReq := s.requestWith(key, "POST", "/v1/embeddings", map[string]any{
+			"model": "text-embedding-3-small",
+			"input": "test",
+		})
+		resp, _ = s.Do(embReq)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for embeddings, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("JWT auth ignores model restrictions", func(t *testing.T) {
+		// JWT-authenticated requests should not be restricted by model
+		req := s.Request("POST", "/v1/chat/completions", map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		})
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("JWT auth should not be model-restricted, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("model restriction via API key create endpoint", func(t *testing.T) {
+		// Create API key via the API with model restrictions
+		createReq := s.Request("POST", "/api/v1/api-keys", map[string]any{
+			"name":           "restricted-key-test",
+			"scopes":         []string{"gateway:read", "gateway:chat"},
+			"allowed_models": []string{"gpt-4o"},
+			"environment":    "live",
+		})
+		var createResp map[string]any
+		resp := s.DoJSON(createReq, &createResp)
+		if resp.StatusCode != http.StatusCreated {
+			body, _ := json.Marshal(createResp)
+			t.Fatalf("expected 201, got %d, body: %s", resp.StatusCode, body)
+		}
+
+		secretKey := createResp["secret_key"].(string)
+		apiKeyInfo := createResp["api_key"].(map[string]any)
+		models, ok := apiKeyInfo["allowed_models"].([]any)
+		if !ok || len(models) != 1 || models[0].(string) != "gpt-4o" {
+			t.Fatalf("expected allowed_models=[gpt-4o], got %v", apiKeyInfo["allowed_models"])
+		}
+
+		// Use the key - gpt-4o should work
+		chatReq := s.requestWith(secretKey, "POST", "/v1/chat/completions", map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		})
+		resp, _ = s.Do(chatReq)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for allowed model, got %d", resp.StatusCode)
+		}
+
+		// Embedding should be blocked
+		embReq := s.requestWith(secretKey, "POST", "/v1/embeddings", map[string]any{
+			"model": "text-embedding-3-small",
+			"input": "test",
+		})
+		resp, body := s.Do(embReq)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("expected 403 for disallowed model, got %d, body: %s", resp.StatusCode, body)
+		}
+	})
+}
