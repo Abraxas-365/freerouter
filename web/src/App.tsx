@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { AuthProvider, useAuth } from "@/contexts/auth"
+import { ApiProvider } from "@/api"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppLayout } from "@/components/layout/app-layout"
 import { DashboardPage } from "@/pages/dashboard/page"
@@ -36,29 +37,31 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <TooltipProvider>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
+        <ApiProvider>
+          <TooltipProvider>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
 
-            <Route
-              element={
-                <RequireAuth>
-                  <AppLayout />
-                </RequireAuth>
-              }
-            >
-              <Route index element={<DashboardPage />} />
-              <Route path="providers" element={<ProvidersPage />} />
-              <Route path="models" element={<ModelsPage />} />
-              <Route path="api-keys" element={<ApiKeysPage />} />
-              <Route path="billing" element={<BillingPage />} />
-              <Route path="usage" element={<UsagePage />} />
-              <Route path="guardrails" element={<GuardrailsPage />} />
-              <Route path="webhooks" element={<WebhooksPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-            </Route>
-          </Routes>
-        </TooltipProvider>
+              <Route
+                element={
+                  <RequireAuth>
+                    <AppLayout />
+                  </RequireAuth>
+                }
+              >
+                <Route index element={<DashboardPage />} />
+                <Route path="providers" element={<ProvidersPage />} />
+                <Route path="models" element={<ModelsPage />} />
+                <Route path="api-keys" element={<ApiKeysPage />} />
+                <Route path="billing" element={<BillingPage />} />
+                <Route path="usage" element={<UsagePage />} />
+                <Route path="guardrails" element={<GuardrailsPage />} />
+                <Route path="webhooks" element={<WebhooksPage />} />
+                <Route path="settings" element={<SettingsPage />} />
+              </Route>
+            </Routes>
+          </TooltipProvider>
+        </ApiProvider>
       </AuthProvider>
     </BrowserRouter>
   )

@@ -542,6 +542,144 @@ export interface User {
 }
 
 // ============================================================================
+// Roles
+// ============================================================================
+
+export interface Role {
+  id: string
+  tenant_id: string
+  name: string
+  description?: string
+  scopes: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateRoleRequest {
+  name: string
+  description?: string
+  scopes: string[]
+}
+
+export interface UpdateRoleRequest {
+  name?: string
+  description?: string
+  scopes?: string[]
+}
+
+export interface AssignRoleRequest {
+  user_id: string
+}
+
+export interface UserRolesResponse {
+  user_id: string
+  roles: Role[]
+  direct_scopes: string[]
+  effective_scopes: string[]
+}
+
+// ============================================================================
+// Tenants
+// ============================================================================
+
+export interface Tenant {
+  id: string
+  company_name: string
+  status: "ACTIVE" | "SUSPENDED" | "CANCELED"
+  max_users: number
+  current_users: number
+  created_at: string
+  updated_at: string
+}
+
+export interface TenantResponse {
+  tenant: Tenant
+  config: Record<string, string>
+}
+
+export interface CreateTenantRequest {
+  company_name: string
+}
+
+export interface UpdateTenantRequest {
+  company_name?: string
+  status?: Tenant["status"]
+}
+
+export interface TenantStats {
+  tenant_id: string
+  total_users: number
+  active_users: number
+  max_users: number
+  user_utilization: number
+}
+
+export interface TenantUsage {
+  tenant_id: string
+  current_users: number
+  max_users: number
+  usage_percentage: number
+  can_add_users: boolean
+  remaining_users: number
+}
+
+export interface TenantConfig {
+  tenant_id: string
+  config: Record<string, string>
+}
+
+// ============================================================================
+// Invitations
+// ============================================================================
+
+export interface Invitation {
+  id: string
+  tenant_id: string
+  email: string
+  status: "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED"
+  scopes: string[]
+  role_id?: string
+  expires_at: string
+  accepted_at?: string
+  created_at: string
+}
+
+export interface CreateInvitationRequest {
+  email: string
+  scopes?: string[]
+  role_id?: string
+  expires_in?: number
+}
+
+export interface ValidateInvitationResponse {
+  valid: boolean
+  invitation?: Invitation
+  message?: string
+}
+
+// ============================================================================
+// Scopes
+// ============================================================================
+
+export interface ScopeDetail {
+  name: string
+  description: string
+  category: string
+}
+
+export interface UserScopesResponse {
+  user_id: string
+  scopes: string[]
+  scope_details: ScopeDetail[]
+  total_scopes: number
+}
+
+export interface AvailableScopesResponse {
+  total_scopes: number
+  categories: Record<string, ScopeDetail[]>
+}
+
+// ============================================================================
 // Paginated response wrapper
 // ============================================================================
 

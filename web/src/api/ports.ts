@@ -17,6 +17,11 @@ import type {
   RoutingConfig, UpsertRoutingConfigRequest,
   CostEstimateRequest, CostEstimateResponse,
   User, Paginated,
+  Role, CreateRoleRequest, UpdateRoleRequest, AssignRoleRequest, UserRolesResponse,
+  TenantResponse, CreateTenantRequest, UpdateTenantRequest,
+  TenantStats, TenantUsage, TenantConfig,
+  Invitation, CreateInvitationRequest, ValidateInvitationResponse,
+  UserScopesResponse, AvailableScopesResponse,
 } from "./types"
 
 // ============================================================================
@@ -193,6 +198,68 @@ export interface UsersPort {
 }
 
 // ============================================================================
+// Roles Port
+// ============================================================================
+
+export interface RolesPort {
+  list(): Promise<Paginated<Role>>
+  get(id: string): Promise<Role>
+  create(req: CreateRoleRequest): Promise<Role>
+  update(id: string, req: UpdateRoleRequest): Promise<Role>
+  delete(id: string): Promise<void>
+  assign(roleId: string, req: AssignRoleRequest): Promise<void>
+  unassign(roleId: string, userId: string): Promise<void>
+  getUserRoles(userId: string): Promise<UserRolesResponse>
+}
+
+// ============================================================================
+// Tenants Port
+// ============================================================================
+
+export interface TenantsPort {
+  list(): Promise<Paginated<TenantResponse>>
+  get(id: string): Promise<TenantResponse>
+  create(req: CreateTenantRequest): Promise<TenantResponse>
+  update(id: string, req: UpdateTenantRequest): Promise<TenantResponse>
+  delete(id: string): Promise<void>
+  suspend(id: string, reason: string): Promise<void>
+  activate(id: string, comments?: string): Promise<void>
+  getStats(id: string): Promise<TenantStats>
+  getUsage(id: string): Promise<TenantUsage>
+  getUsers(id: string): Promise<Paginated<User>>
+  getConfig(id: string): Promise<TenantConfig>
+  setConfig(id: string, key: string, value: string): Promise<TenantConfig>
+  deleteConfig(id: string, key: string): Promise<void>
+}
+
+// ============================================================================
+// Invitations Port
+// ============================================================================
+
+export interface InvitationsPort {
+  list(): Promise<Paginated<Invitation>>
+  listPending(): Promise<Paginated<Invitation>>
+  get(id: string): Promise<Invitation>
+  create(req: CreateInvitationRequest): Promise<Invitation>
+  delete(id: string): Promise<void>
+  revoke(id: string, reason?: string): Promise<void>
+  validateToken(token: string): Promise<ValidateInvitationResponse>
+  getByToken(token: string): Promise<Invitation>
+}
+
+// ============================================================================
+// Scopes Port
+// ============================================================================
+
+export interface ScopesPort {
+  listAvailable(): Promise<AvailableScopesResponse>
+  getUserScopes(userId: string): Promise<UserScopesResponse>
+  setUserScopes(userId: string, scopes: string[]): Promise<UserScopesResponse>
+  addUserScopes(userId: string, scopes: string[]): Promise<UserScopesResponse>
+  removeUserScopes(userId: string, scopes: string[]): Promise<UserScopesResponse>
+}
+
+// ============================================================================
 // Combined API Port (all services)
 // ============================================================================
 
@@ -209,4 +276,8 @@ export interface ApiPort {
   apiKeys: ApiKeysPort
   gatewayConfig: GatewayConfigPort
   users: UsersPort
+  roles: RolesPort
+  tenants: TenantsPort
+  invitations: InvitationsPort
+  scopes: ScopesPort
 }

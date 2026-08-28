@@ -2,6 +2,7 @@ import type {
   ApiPort, ProviderPort, ModelPort, MappingPort, ModelFallbackPort,
   ProviderKeyPort, BillingPort, UsagePort, GuardrailsPort,
   WebhooksPort, ApiKeysPort, GatewayConfigPort, UsersPort,
+  RolesPort, TenantsPort, InvitationsPort, ScopesPort,
 } from "./ports"
 import type {
   Provider, Model, ModelWithMappings, ModelProviderMapping,
@@ -13,6 +14,10 @@ import type {
   WebhookConfig, WebhookDelivery,
   ApiKey, CreateApiKeyResponse,
   RateLimitConfig, RoutingConfig, CostEstimateResponse, User,
+  Role, TenantResponse, Invitation, UserRolesResponse,
+  TenantStats, TenantUsage, TenantConfig,
+  ValidateInvitationResponse, UserScopesResponse, AvailableScopesResponse,
+  ScopeDetail,
 } from "./types"
 
 // ============================================================================
@@ -278,6 +283,116 @@ const users: UsersPort = {
 }
 
 // ============================================================================
+// Roles Mock
+// ============================================================================
+
+const ROLES: Role[] = [
+  { id: "role-admin", tenant_id: MOCK_TENANT, name: "Admin", description: "Full access to all features", scopes: ["*"], created_at: "2024-06-01T00:00:00Z", updated_at: "2024-06-01T00:00:00Z" },
+  { id: "role-developer", tenant_id: MOCK_TENANT, name: "Developer", description: "Gateway access and usage viewing", scopes: ["gateway:read", "gateway:chat", "usage:read", "billing:read"], created_at: "2024-06-01T00:00:00Z", updated_at: "2024-06-01T00:00:00Z" },
+  { id: "role-viewer", tenant_id: MOCK_TENANT, name: "Viewer", description: "Read-only access", scopes: ["gateway:read", "billing:read", "usage:read"], created_at: "2024-08-01T00:00:00Z", updated_at: "2024-08-01T00:00:00Z" },
+]
+
+const roles: RolesPort = {
+  list: async () => { await delay(); return { data: [...ROLES], total: ROLES.length } },
+  get: async (id) => { await delay(); const r = ROLES.find(r => r.id === id); if (!r) throw new Error("Not found"); return { ...r } },
+  create: async (req) => { await delay(); const r: Role = { id: newId(), tenant_id: MOCK_TENANT, name: req.name, description: req.description, scopes: req.scopes, created_at: now(), updated_at: now() }; ROLES.push(r); return r },
+  update: async (id, req) => { await delay(); const r = ROLES.find(r => r.id === id); if (!r) throw new Error("Not found"); Object.assign(r, req, { updated_at: now() }); return { ...r } },
+  delete: async (id) => { await delay(); const idx = ROLES.findIndex(r => r.id === id); if (idx >= 0) ROLES.splice(idx, 1) },
+  assign: async () => { await delay() },
+  unassign: async () => { await delay() },
+  getUserRoles: async (userId) => { await delay(); return { user_id: userId, roles: [ROLES[1]], direct_scopes: ["gateway:chat"], effective_scopes: ["gateway:read", "gateway:chat", "usage:read", "billing:read"] } as UserRolesResponse },
+}
+
+// ============================================================================
+// Tenants Mock
+// ============================================================================
+
+const TENANTS: TenantResponse[] = [
+  { tenant: { id: MOCK_TENANT, company_name: "Acme Corp", status: "ACTIVE", max_users: 25, current_users: 2, created_at: "2024-06-01T00:00:00Z", updated_at: "2025-08-01T00:00:00Z" }, config: { default_model: "gpt-4o", environment: "production" } },
+]
+
+const tenants: TenantsPort = {
+  list: async () => { await delay(); return { data: [...TENANTS], total: TENANTS.length } },
+  get: async (id) => { await delay(); const t = TENANTS.find(t => t.tenant.id === id); if (!t) throw new Error("Not found"); return { ...t } },
+  create: async (req) => { await delay(); const t: TenantResponse = { tenant: { id: newId(), company_name: req.company_name, status: "ACTIVE", max_users: 10, current_users: 0, created_at: now(), updated_at: now() }, config: {} }; TENANTS.push(t); return t },
+  update: async (id, req) => { await delay(); const t = TENANTS.find(t => t.tenant.id === id); if (!t) throw new Error("Not found"); Object.assign(t.tenant, req, { updated_at: now() }); return { ...t } },
+  delete: async (id) => { await delay(); const idx = TENANTS.findIndex(t => t.tenant.id === id); if (idx >= 0) TENANTS.splice(idx, 1) },
+  suspend: async () => { await delay() },
+  activate: async () => { await delay() },
+  getStats: async (id) => { await delay(); return { tenant_id: id, total_users: 2, active_users: 2, max_users: 25, user_utilization: 0.08 } as TenantStats },
+  getUsage: async (id) => { await delay(); return { tenant_id: id, current_users: 2, max_users: 25, usage_percentage: 8, can_add_users: true, remaining_users: 23 } as TenantUsage },
+  getUsers: async () => { await delay(); const data: User[] = [{ id: "user-1", tenant_id: MOCK_TENANT, email: "admin@example.com", name: "Admin User", oauth_provider: "GOOGLE", status: "ACTIVE", scopes: ["*"], email_verified: true, created_at: "2024-06-01T00:00:00Z", updated_at: now() }]; return { data, total: data.length } },
+  getConfig: async (id) => { await delay(); return { tenant_id: id, config: { default_model: "gpt-4o", environment: "production" } } as TenantConfig },
+  setConfig: async (id, key, value) => { await delay(); return { tenant_id: id, config: { [key]: value, default_model: "gpt-4o", environment: "production" } } as TenantConfig },
+  deleteConfig: async () => { await delay() },
+}
+
+// ============================================================================
+// Invitations Mock
+// ============================================================================
+
+const INVITATIONS: Invitation[] = [
+  { id: "inv-1", tenant_id: MOCK_TENANT, email: "newdev@example.com", status: "PENDING", scopes: ["gateway:chat", "usage:read"], expires_at: new Date(Date.now() + 7 * 86400000).toISOString(), created_at: "2025-08-25T00:00:00Z" },
+  { id: "inv-2", tenant_id: MOCK_TENANT, email: "designer@example.com", status: "ACCEPTED", scopes: ["gateway:read"], role_id: "role-viewer", expires_at: "2025-09-01T00:00:00Z", accepted_at: "2025-08-20T10:00:00Z", created_at: "2025-08-15T00:00:00Z" },
+]
+
+const invitations: InvitationsPort = {
+  list: async () => { await delay(); return { data: [...INVITATIONS], total: INVITATIONS.length } },
+  listPending: async () => { await delay(); const data = INVITATIONS.filter(i => i.status === "PENDING"); return { data, total: data.length } },
+  get: async (id) => { await delay(); const i = INVITATIONS.find(i => i.id === id); if (!i) throw new Error("Not found"); return { ...i } },
+  create: async (req) => { await delay(); const i: Invitation = { id: newId(), tenant_id: MOCK_TENANT, email: req.email, status: "PENDING", scopes: req.scopes ?? [], role_id: req.role_id, expires_at: new Date(Date.now() + (req.expires_in ?? 7) * 86400000).toISOString(), created_at: now() }; INVITATIONS.push(i); return i },
+  delete: async (id) => { await delay(); const idx = INVITATIONS.findIndex(i => i.id === id); if (idx >= 0) INVITATIONS.splice(idx, 1) },
+  revoke: async (id) => { await delay(); const i = INVITATIONS.find(i => i.id === id); if (i) i.status = "REVOKED" },
+  validateToken: async () => { await delay(); return { valid: true, invitation: INVITATIONS[0], message: "Valid invitation" } as ValidateInvitationResponse },
+  getByToken: async () => { await delay(); return { ...INVITATIONS[0] } },
+}
+
+// ============================================================================
+// Scopes Mock
+// ============================================================================
+
+const ALL_SCOPES: ScopeDetail[] = [
+  { name: "gateway:read", description: "View gateway configuration", category: "Gateway" },
+  { name: "gateway:write", description: "Modify gateway configuration", category: "Gateway" },
+  { name: "gateway:chat", description: "Use gateway for LLM requests", category: "Gateway" },
+  { name: "providers:read", description: "View providers", category: "Providers" },
+  { name: "providers:write", description: "Create/update providers", category: "Providers" },
+  { name: "providers:delete", description: "Delete providers", category: "Providers" },
+  { name: "models:read", description: "View models", category: "Models" },
+  { name: "models:write", description: "Create/update models", category: "Models" },
+  { name: "billing:read", description: "View billing info", category: "Billing" },
+  { name: "billing:write", description: "Top-up and adjust", category: "Billing" },
+  { name: "billing:admin", description: "Full billing access", category: "Billing" },
+  { name: "usage:read", description: "View usage logs", category: "Usage" },
+  { name: "usage:write", description: "Manage usage settings", category: "Usage" },
+  { name: "guardrails:read", description: "View guardrails", category: "Guardrails" },
+  { name: "guardrails:write", description: "Manage guardrails", category: "Guardrails" },
+  { name: "webhooks:read", description: "View webhooks", category: "Webhooks" },
+  { name: "webhooks:write", description: "Manage webhooks", category: "Webhooks" },
+  { name: "api_keys:read", description: "View API keys", category: "API Keys" },
+  { name: "api_keys:write", description: "Create/update API keys", category: "API Keys" },
+  { name: "api_keys:delete", description: "Delete API keys", category: "API Keys" },
+  { name: "rate-limits:read", description: "View rate limits", category: "Rate Limits" },
+  { name: "rate-limits:write", description: "Manage rate limits", category: "Rate Limits" },
+]
+
+const scopes: ScopesPort = {
+  listAvailable: async () => {
+    await delay()
+    const categories: Record<string, ScopeDetail[]> = {}
+    for (const s of ALL_SCOPES) {
+      if (!categories[s.category]) categories[s.category] = []
+      categories[s.category].push(s)
+    }
+    return { total_scopes: ALL_SCOPES.length, categories } as AvailableScopesResponse
+  },
+  getUserScopes: async (userId) => { await delay(); return { user_id: userId, scopes: ["gateway:chat", "usage:read"], scope_details: ALL_SCOPES.filter(s => ["gateway:chat", "usage:read"].includes(s.name)), total_scopes: 2 } as UserScopesResponse },
+  setUserScopes: async (userId, scopeList) => { await delay(); return { user_id: userId, scopes: scopeList, scope_details: ALL_SCOPES.filter(s => scopeList.includes(s.name)), total_scopes: scopeList.length } as UserScopesResponse },
+  addUserScopes: async (userId, scopeList) => { await delay(); const merged = [...new Set(["gateway:chat", "usage:read", ...scopeList])]; return { user_id: userId, scopes: merged, scope_details: ALL_SCOPES.filter(s => merged.includes(s.name)), total_scopes: merged.length } as UserScopesResponse },
+  removeUserScopes: async (userId) => { await delay(); return { user_id: userId, scopes: [], scope_details: [], total_scopes: 0 } as UserScopesResponse },
+}
+
+// ============================================================================
 // Combined Mock API
 // ============================================================================
 
@@ -294,4 +409,8 @@ export const mockApi: ApiPort = {
   apiKeys,
   gatewayConfig,
   users,
+  roles,
+  tenants,
+  invitations,
+  scopes,
 }
