@@ -257,6 +257,12 @@ func (s *Suite) buildConfig(pgConnStr, redisAddr string) *config.Config {
 
 func (s *Suite) startMockUpstream() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Image generation endpoint
+		if strings.HasSuffix(r.URL.Path, "/images/generations") {
+			s.respondImageGeneration(w)
+			return
+		}
+
 		// Check if streaming
 		body, _ := io.ReadAll(r.Body)
 		var req map[string]any
@@ -318,6 +324,18 @@ func (s *Suite) respondStream(w http.ResponseWriter) {
 	}
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
+}
+
+func (s *Suite) respondImageGeneration(w http.ResponseWriter) {
+	resp := map[string]any{
+		"created": time.Now().Unix(),
+		"data": []map[string]any{{
+			"url":             "https://example.com/generated-image.png",
+			"revised_prompt":  "A cute cat sitting on a windowsill, detailed digital art",
+		}},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Suite) initContainers() {

@@ -125,6 +125,7 @@ func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 	v1.Post("/chat/completions", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.ChatCompletions)
 	v1.Post("/messages", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.AnthropicMessages)
 	v1.Post("/responses", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Responses)
+	v1.Post("/images/generations", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.ImageGeneration)
 	v1.Post("/cost/estimate", authMiddleware.RequireScope(scopes.ScopeGatewayRead), h.EstimateCost)
 }
 

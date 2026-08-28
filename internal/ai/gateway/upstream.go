@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -149,6 +150,47 @@ func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, 
 	}
 
 	return http.StatusOK, nil
+}
+
+// CallImage makes a non-streaming request to the upstream provider's image
+// generation endpoint. Unlike chat, image requests are proxied directly
+// without translation (OpenAI-compatible format only).
+func (u *Upstream) CallImage(ctx context.Context, route *RouteResult, body []byte) (*ImageResponse, int, error) {
+	url := strings.TrimSuffix(route.BaseURL, "/") + "/images/generations"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, errx.Wrap(err, "failed to build image request", errx.TypeInternal)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	setAuthHeaders(req, route)
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return nil, 0, errx.Wrap(err, "upstream image request failed", errx.TypeInternal).
+			WithDetail("provider", route.ProviderID)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, errx.Wrap(err, "failed to read upstream image response", errx.TypeInternal)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode, errx.New(
+			fmt.Sprintf("upstream returned %d: %s", resp.StatusCode, string(respBody)),
+			errx.TypeInternal,
+		).WithDetail("provider", route.ProviderID).
+			WithDetail("status", fmt.Sprintf("%d", resp.StatusCode))
+	}
+
+	var imageResp ImageResponse
+	if err := json.Unmarshal(respBody, &imageResp); err != nil {
+		return nil, resp.StatusCode, errx.Wrap(err, "failed to parse image response", errx.TypeInternal)
+	}
+
+	return &imageResp, resp.StatusCode, nil
 }
 
 func (u *Upstream) buildRequest(ctx context.Context, route *RouteResult, body []byte, stream bool) (*http.Request, error) {

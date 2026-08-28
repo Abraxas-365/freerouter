@@ -1262,3 +1262,101 @@ func TestUsageFull(t *testing.T) {
 		assertForbidden(t, resp, body)
 	})
 }
+
+// ============================================================================
+// Test: Image generation
+// ============================================================================
+
+func TestImageGeneration(t *testing.T) {
+	s := NewSuite(t)
+
+	// Seed a dall-e-3 model and mapping for image generation tests
+	_, err := s.DB.ExecContext(s.T.Context(),
+		`INSERT INTO models (id, name, family, stability, status) VALUES ('dall-e-3', 'DALL-E 3', 'openai', 'stable', 'active')
+		 ON CONFLICT (id) DO NOTHING`)
+	if err != nil {
+		t.Fatalf("failed to seed dall-e-3 model: %v", err)
+	}
+	_, err = s.DB.ExecContext(s.T.Context(),
+		`INSERT INTO model_provider_mappings (id, model_id, provider_id, external_id, input_price, output_price, context_size, max_output, streaming, vision, reasoning, tools, json_output)
+		 VALUES ('map-dall-e-3', 'dall-e-3', 'openai', 'dall-e-3', 0, 0, 0, 0, false, false, false, false, false)
+		 ON CONFLICT (id) DO NOTHING`)
+	if err != nil {
+		t.Fatalf("failed to seed dall-e-3 mapping: %v", err)
+	}
+
+	t.Run("generate image", func(t *testing.T) {
+		req := s.Request("POST", "/v1/images/generations", map[string]any{
+			"model":  "dall-e-3",
+			"prompt": "A cute cat sitting on a windowsill",
+			"size":   "1024x1024",
+			"n":      1,
+		})
+		var result map[string]any
+		resp := s.DoJSON(req, &result)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		if result["created"] == nil {
+			t.Fatal("expected created field")
+		}
+		data := result["data"].([]any)
+		if len(data) == 0 {
+			t.Fatal("expected at least 1 image in data")
+		}
+		img := data[0].(map[string]any)
+		if img["url"] == nil || img["url"] == "" {
+			t.Fatal("expected url in image data")
+		}
+	})
+
+	t.Run("missing prompt returns 400", func(t *testing.T) {
+		req := s.Request("POST", "/v1/images/generations", map[string]any{
+			"model": "dall-e-3",
+		})
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400 for missing prompt, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("billing debit on image generation", func(t *testing.T) {
+		var before map[string]any
+		s.DoJSON(s.Request("GET", "/api/v1/billing/balance", nil), &before)
+		balanceBefore := before["balance"].(float64)
+
+		req := s.Request("POST", "/v1/images/generations", map[string]any{
+			"model":  "dall-e-3",
+			"prompt": "A mountain landscape",
+			"size":   "1024x1024",
+		})
+		resp, _ := s.Do(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+
+		var after map[string]any
+		s.DoJSON(s.Request("GET", "/api/v1/billing/balance", nil), &after)
+		balanceAfter := after["balance"].(float64)
+
+		if balanceAfter >= balanceBefore {
+			t.Fatalf("expected balance to decrease after image generation: before=%.6f, after=%.6f", balanceBefore, balanceAfter)
+		}
+		cost := balanceBefore - balanceAfter
+		t.Logf("image cost: $%.4f", cost)
+		// DALL-E 3 1024x1024 standard = $0.040
+		if cost < 0.01 || cost > 0.20 {
+			t.Fatalf("unexpected cost: $%.4f (expected ~$0.04)", cost)
+		}
+	})
+
+	t.Run("scope enforcement: denied without gateway:chat", func(t *testing.T) {
+		key := s.createAPIKeyWithScopes([]string{"billing:read"})
+		req := s.requestWith(key, "POST", "/v1/images/generations", map[string]any{
+			"model":  "dall-e-3",
+			"prompt": "test",
+		})
+		resp, body := s.Do(req)
+		assertForbidden(t, resp, body)
+	})
+}
