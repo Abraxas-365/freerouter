@@ -16,8 +16,9 @@ type Container struct {
 
 func New(db *sqlx.DB) *Container {
 	repo := billinginfra.NewPostgresBillingRepository(db)
+	spendingRepo := billinginfra.NewPostgresSpendingLimitRepository(db)
 
-	service := billingsrv.NewBillingService(repo)
+	service := billingsrv.NewBillingService(repo, spendingRepo)
 	handlers := billingapi.NewBillingHandlers(service)
 
 	return &Container{

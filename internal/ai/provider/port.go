@@ -34,3 +34,10 @@ type MappingRepository interface {
 	Save(ctx context.Context, m ModelProviderMapping) error
 	Delete(ctx context.Context, id kernel.MappingID) error
 }
+
+// FallbackRepository defines the contract for model fallback persistence
+type FallbackRepository interface {
+	FindByModelID(ctx context.Context, modelID kernel.ModelID) ([]*ModelFallback, error)
+	Save(ctx context.Context, f ModelFallback) error
+	Delete(ctx context.Context, id string) error
+}

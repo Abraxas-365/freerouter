@@ -27,6 +27,8 @@ func (h *ProviderKeyHandlers) RegisterRoutes(router fiber.Router, authMiddleware
 	keys.Get("/by-provider/:providerId", authMiddleware.RequireScope("provider-keys:read"), h.ListByProvider)
 	keys.Get("/by-tenant/:tenantId", authMiddleware.RequireScope("provider-keys:read"), h.ListByTenant)
 	keys.Get("/managed", authMiddleware.RequireScope("provider-keys:read"), h.ListManaged)
+
+	keys.Post("/:id/test", authMiddleware.RequireScope("provider-keys:write"), h.TestKey)
 }
 
 func (h *ProviderKeyHandlers) CreateKey(c *fiber.Ctx) error {
@@ -92,4 +94,12 @@ func (h *ProviderKeyHandlers) ListManaged(c *fiber.Ctx) error {
 		return err
 	}
 	return c.JSON(response)
+}
+
+func (h *ProviderKeyHandlers) TestKey(c *fiber.Ctx) error {
+	result, err := h.service.TestKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
+	if err != nil {
+		return err
+	}
+	return c.JSON(result)
 }

@@ -155,3 +155,38 @@ var (
 
 func ErrInsufficientBalance() *errx.Error { return ErrRegistry.New(CodeInsufficientBalance) }
 func ErrBalanceNotFound() *errx.Error     { return ErrRegistry.New(CodeBalanceNotFound) }
+
+// ============================================================================
+// Spending Limits
+// ============================================================================
+
+// SpendingLimitConfig holds per-tenant daily/monthly spending caps.
+type SpendingLimitConfig struct {
+	TenantID       kernel.TenantID `db:"tenant_id" json:"tenant_id"`
+	DailyLimitUSD  *float64        `db:"daily_limit_usd" json:"daily_limit_usd"`   // nil = no limit
+	MonthlyLimitUSD *float64       `db:"monthly_limit_usd" json:"monthly_limit_usd"` // nil = no limit
+	CreatedAt      time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time       `db:"updated_at" json:"updated_at"`
+}
+
+// UpsertSpendingLimitRequest is the DTO for creating/updating spending limits.
+type UpsertSpendingLimitRequest struct {
+	DailyLimitUSD  *float64 `json:"daily_limit_usd"`
+	MonthlyLimitUSD *float64 `json:"monthly_limit_usd"`
+}
+
+// SpendingCheckResult holds the outcome of a spending limit check.
+type SpendingCheckResult struct {
+	Allowed       bool    `json:"allowed"`
+	DailySpend    float64 `json:"daily_spend_usd"`
+	MonthlySpend  float64 `json:"monthly_spend_usd"`
+	DailyLimit    *float64 `json:"daily_limit_usd,omitempty"`
+	MonthlyLimit  *float64 `json:"monthly_limit_usd,omitempty"`
+	Reason        string  `json:"reason,omitempty"`
+}
+
+var (
+	CodeSpendingLimitExceeded = ErrRegistry.Register("SPENDING_LIMIT_EXCEEDED", errx.TypeBusiness, http.StatusPaymentRequired, "Spending limit exceeded")
+)
+
+func ErrSpendingLimitExceeded() *errx.Error { return ErrRegistry.New(CodeSpendingLimitExceeded) }

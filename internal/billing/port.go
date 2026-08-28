@@ -23,3 +23,14 @@ type BillingRepository interface {
 	// QueryTransactions returns paginated transactions for a tenant
 	QueryTransactions(ctx context.Context, q TransactionQuery) ([]*Transaction, int, error)
 }
+
+// SpendingLimitRepository defines the contract for spending limit persistence.
+type SpendingLimitRepository interface {
+	GetByTenantID(ctx context.Context, tenantID kernel.TenantID) (*SpendingLimitConfig, error)
+	Upsert(ctx context.Context, cfg *SpendingLimitConfig) (*SpendingLimitConfig, error)
+	Delete(ctx context.Context, tenantID kernel.TenantID) error
+	// GetDailySpend returns the total spend for a tenant today (UTC).
+	GetDailySpend(ctx context.Context, tenantID kernel.TenantID) (float64, error)
+	// GetMonthlySpend returns the total spend for a tenant this month (UTC).
+	GetMonthlySpend(ctx context.Context, tenantID kernel.TenantID) (float64, error)
+}

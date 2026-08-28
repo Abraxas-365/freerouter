@@ -25,6 +25,7 @@ import (
 		"github.com/Abraxas-365/freerouter/internal/notifx/notifxses"
 		"github.com/Abraxas-365/freerouter/internal/notifx/notifxconsole"
 		"github.com/aws/aws-sdk-go-v2/service/ses"
+		"github.com/Abraxas-365/freerouter/internal/webhook/webhookcontainer"
 	// manifesto:container-imports
 )
 
@@ -44,6 +45,7 @@ type Container struct {
 		Billing *billingcontainer.Container
 		JobClient *jobx.Client
 		NotifxClient *notifx.Client
+		Webhook *webhookcontainer.Container
 	// manifesto:container-fields
 }
 
@@ -121,6 +123,7 @@ func (c *Container) initModules() {
 
 	c.AI = aicontainer.New(aicontainer.Deps{
 		DB:             c.DB,
+		Redis:          c.Redis,
 		Cfg:            c.Config,
 		BillingRepo:    c.Billing.Repo,
 		BillingService: c.Billing.Service,
@@ -129,6 +132,14 @@ func (c *Container) initModules() {
 		c.initJobx()
 
 		c.initNotifx()
+
+		c.Webhook = webhookcontainer.New(c.DB)
+		logx.Info("  Webhook service initialized")
+
+		// Wire webhook service into gateway handlers
+		if c.AI != nil && c.AI.Gateway != nil {
+			c.AI.Gateway.Handlers.SetWebhooks(c.Webhook.Service)
+		}
 
 	// manifesto:module-init
 }
@@ -141,6 +152,9 @@ func (c *Container) StartBackgroundServices(ctx context.Context) {
 	logx.Info("Starting background services...")
 		c.IAM.StartBackgroundServices(ctx)
 		go c.JobClient.Start(ctx)
+		if c.Webhook != nil {
+			c.Webhook.Service.StartWorker()
+		}
 	// manifesto:background-start
 }
 
@@ -149,6 +163,10 @@ func (c *Container) Cleanup() {
 
 	if c.AI != nil {
 		c.AI.Close()
+	}
+
+	if c.Webhook != nil {
+		c.Webhook.Close()
 	}
 
 	if c.DB != nil {

@@ -232,3 +232,80 @@ func (r *PostgresBillingRepository) insertTransaction(ctx context.Context, tx *s
 	}
 	return nil
 }
+
+// ============================================================================
+// Spending Limit Repository
+// ============================================================================
+
+type PostgresSpendingLimitRepository struct {
+	db *sqlx.DB
+}
+
+func NewPostgresSpendingLimitRepository(db *sqlx.DB) billing.SpendingLimitRepository {
+	return &PostgresSpendingLimitRepository{db: db}
+}
+
+func (r *PostgresSpendingLimitRepository) GetByTenantID(ctx context.Context, tenantID kernel.TenantID) (*billing.SpendingLimitConfig, error) {
+	var cfg billing.SpendingLimitConfig
+	err := r.db.GetContext(ctx, &cfg, `SELECT tenant_id, daily_limit_usd, monthly_limit_usd, created_at, updated_at FROM spending_limit_configs WHERE tenant_id = $1`, tenantID.String())
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, errx.Wrap(err, "failed to get spending limit config", errx.TypeInternal)
+	}
+	return &cfg, nil
+}
+
+func (r *PostgresSpendingLimitRepository) Upsert(ctx context.Context, cfg *billing.SpendingLimitConfig) (*billing.SpendingLimitConfig, error) {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO spending_limit_configs (tenant_id, daily_limit_usd, monthly_limit_usd, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (tenant_id) DO UPDATE SET
+			daily_limit_usd = EXCLUDED.daily_limit_usd,
+			monthly_limit_usd = EXCLUDED.monthly_limit_usd,
+			updated_at = NOW()
+	`, cfg.TenantID.String(), cfg.DailyLimitUSD, cfg.MonthlyLimitUSD)
+	if err != nil {
+		return nil, errx.Wrap(err, "failed to upsert spending limit config", errx.TypeInternal)
+	}
+	return r.GetByTenantID(ctx, cfg.TenantID)
+}
+
+func (r *PostgresSpendingLimitRepository) Delete(ctx context.Context, tenantID kernel.TenantID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM spending_limit_configs WHERE tenant_id = $1`, tenantID.String())
+	if err != nil {
+		return errx.Wrap(err, "failed to delete spending limit config", errx.TypeInternal)
+	}
+	return nil
+}
+
+func (r *PostgresSpendingLimitRepository) GetDailySpend(ctx context.Context, tenantID kernel.TenantID) (float64, error) {
+	var spend float64
+	err := r.db.GetContext(ctx, &spend, `
+		SELECT COALESCE(SUM(-amount), 0)
+		FROM credit_transactions
+		WHERE tenant_id = $1
+		  AND type = 'usage'
+		  AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
+	`, tenantID.String())
+	if err != nil {
+		return 0, errx.Wrap(err, "failed to get daily spend", errx.TypeInternal)
+	}
+	return spend, nil
+}
+
+func (r *PostgresSpendingLimitRepository) GetMonthlySpend(ctx context.Context, tenantID kernel.TenantID) (float64, error) {
+	var spend float64
+	err := r.db.GetContext(ctx, &spend, `
+		SELECT COALESCE(SUM(-amount), 0)
+		FROM credit_transactions
+		WHERE tenant_id = $1
+		  AND type = 'usage'
+		  AND created_at >= date_trunc('month', NOW() AT TIME ZONE 'UTC')
+	`, tenantID.String())
+	if err != nil {
+		return 0, errx.Wrap(err, "failed to get monthly spend", errx.TypeInternal)
+	}
+	return spend, nil
+}

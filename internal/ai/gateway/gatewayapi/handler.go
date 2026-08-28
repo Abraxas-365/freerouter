@@ -10,32 +10,64 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway"
+	"github.com/Abraxas-365/freerouter/internal/ai/guardrails"
+	"github.com/Abraxas-365/freerouter/internal/ai/guardrails/guardrailssrv"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagesrv"
 	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
+	"github.com/Abraxas-365/freerouter/internal/webhook"
+	"github.com/Abraxas-365/freerouter/internal/webhook/webhooksrv"
 	"github.com/gofiber/fiber/v2"
 )
 
 type GatewayHandlers struct {
-	router      *gateway.Router
-	upstream    *gateway.Upstream
-	usage       *usagesrv.UsageService
-	billing     *billingsrv.BillingService
-	modelRepo   provider.ModelRepository
-	mappingRepo provider.MappingRepository
+	router        *gateway.Router
+	upstream      *gateway.Upstream
+	usage         *usagesrv.UsageService
+	billing       *billingsrv.BillingService
+	modelRepo     provider.ModelRepository
+	mappingRepo   provider.MappingRepository
+	healthTracker *gateway.KeyHealthTracker
+	guardrails    *guardrailssrv.GuardrailsService
+	rateLimiter   *gateway.RateLimiter
+	cache         *gateway.ResponseCache
+	metrics       *gateway.Metrics
+	webhooks      *webhooksrv.WebhookService // optional, nil = no webhook notifications
 }
 
-func NewGatewayHandlers(router *gateway.Router, upstream *gateway.Upstream, usage *usagesrv.UsageService, billing *billingsrv.BillingService, modelRepo provider.ModelRepository, mappingRepo provider.MappingRepository) *GatewayHandlers {
+func NewGatewayHandlers(
+	router *gateway.Router,
+	upstream *gateway.Upstream,
+	usage *usagesrv.UsageService,
+	billing *billingsrv.BillingService,
+	modelRepo provider.ModelRepository,
+	mappingRepo provider.MappingRepository,
+	healthTracker *gateway.KeyHealthTracker,
+	guardrailsSvc *guardrailssrv.GuardrailsService,
+	rateLimiter *gateway.RateLimiter,
+	cache *gateway.ResponseCache,
+	metrics *gateway.Metrics,
+) *GatewayHandlers {
 	return &GatewayHandlers{
-		router:      router,
-		upstream:    upstream,
-		usage:       usage,
-		billing:     billing,
-		modelRepo:   modelRepo,
-		mappingRepo: mappingRepo,
+		router:        router,
+		upstream:      upstream,
+		usage:         usage,
+		billing:       billing,
+		modelRepo:     modelRepo,
+		mappingRepo:   mappingRepo,
+		healthTracker: healthTracker,
+		guardrails:    guardrailsSvc,
+		rateLimiter:   rateLimiter,
+		cache:         cache,
+		metrics:       metrics,
 	}
+}
+
+// SetWebhooks sets the webhook service for firing events.
+func (h *GatewayHandlers) SetWebhooks(ws *webhooksrv.WebhookService) {
+	h.webhooks = ws
 }
 
 func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
@@ -44,6 +76,19 @@ func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 	v1.Post("/chat/completions", authMiddleware.RequireScope("gateway:chat"), h.ChatCompletions)
 	v1.Post("/messages", authMiddleware.RequireScope("gateway:chat"), h.AnthropicMessages)
 	v1.Post("/responses", authMiddleware.RequireScope("gateway:chat"), h.Responses)
+	v1.Post("/cost/estimate", authMiddleware.RequireScope("gateway:read"), h.EstimateCost)
+}
+
+// RegisterAdminRoutes registers rate limit config and cache invalidation routes (under /api/v1).
+func (h *GatewayHandlers) RegisterAdminRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
+	rl := router.Group("/rate-limits", authMiddleware.Authenticate())
+	rl.Get("/:tenantId", authMiddleware.RequireScope("rate-limits:read"), h.GetRateLimitConfig)
+	rl.Put("/:tenantId", authMiddleware.RequireScope("rate-limits:write"), h.UpsertRateLimitConfig)
+	rl.Delete("/:tenantId", authMiddleware.RequireScope("rate-limits:write"), h.DeleteRateLimitConfig)
+
+	cache := router.Group("/cache", authMiddleware.Authenticate())
+	cache.Delete("/", authMiddleware.RequireScope("gateway:chat"), h.InvalidateCacheAll)
+	cache.Delete("/:tenantId", authMiddleware.RequireScope("gateway:chat"), h.InvalidateCacheTenant)
 }
 
 // ListModels returns all active models in OpenAI-compatible format.
@@ -76,10 +121,65 @@ func (h *GatewayHandlers) ListModels(c *fiber.Ctx) error {
 	})
 }
 
+func (h *GatewayHandlers) EstimateCost(c *fiber.Ctx) error {
+	var req gateway.CostEstimateRequest
+	if err := json.Unmarshal(c.Body(), &req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	if req.Model == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "model is required")
+	}
+
+	pricing, err := h.router.GetPricing(c.Context(), req.Model)
+	if err != nil {
+		return err
+	}
+
+	inputTokens := gateway.EstimateMessageTokens(req.Messages)
+
+	maxOutput := 4096
+	if req.MaxTokens != nil && *req.MaxTokens > 0 {
+		maxOutput = *req.MaxTokens
+	} else if pricing.MaxOutput != nil && *pricing.MaxOutput > 0 {
+		maxOutput = *pricing.MaxOutput / 4 // conservative: assume 1/4 of max
+	}
+
+	var inputCost, outputCost float64
+	if pricing.InputPrice != nil {
+		inputCost = float64(inputTokens) * *pricing.InputPrice / 1_000_000
+	}
+	if pricing.OutputPrice != nil {
+		outputCost = float64(maxOutput) * *pricing.OutputPrice / 1_000_000
+	}
+
+	return c.JSON(gateway.CostEstimateResponse{
+		Model:                 req.Model,
+		Provider:              pricing.ProviderID,
+		EstimatedInputTokens:  inputTokens,
+		MaxOutputTokens:       maxOutput,
+		InputPricePerMillion:  pricing.InputPrice,
+		OutputPricePerMillion: pricing.OutputPrice,
+		EstimatedInputCost:    inputCost,
+		EstimatedOutputCost:   outputCost,
+		EstimatedTotalCost:    inputCost + outputCost,
+	})
+}
+
 func (h *GatewayHandlers) ChatCompletions(c *fiber.Ctx) error {
 	authCtx, ok := auth.GetAuthContext(c)
 	if !ok {
 		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+
+	// Rate limit check
+	if err := h.checkRateLimit(c, authCtx.TenantID); err != nil {
+		return err
+	}
+	defer h.rateLimiter.Release(c.Context(), authCtx.TenantID.String())
+
+	// Spending limit check
+	if err := h.checkSpendingLimit(c, authCtx.TenantID); err != nil {
+		return err
 	}
 
 	var req gateway.ChatRequest
@@ -93,103 +193,289 @@ func (h *GatewayHandlers) ChatCompletions(c *fiber.Ctx) error {
 
 	requestedModel := req.Model
 
-	// Route: resolve model -> provider -> credential
-	tenantID := &authCtx.TenantID
-	route, err := h.router.Resolve(c.Context(), req.Model, tenantID, req.MaxTokens)
-	if err != nil {
-		return err
-	}
-
-	// Rewrite model to provider's external ID
-	req.Model = route.ExternalID
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "failed to marshal request")
-	}
-
-	if req.Stream {
-		return h.handleStream(c, route, requestedModel, authCtx.TenantID, body)
-	}
-	return h.handleNonStream(c, route, requestedModel, authCtx.TenantID, body)
-}
-
-func (h *GatewayHandlers) handleNonStream(c *fiber.Ctx, route *gateway.RouteResult, requestedModel string, tenantID kernel.TenantID, body []byte) error {
-	start := time.Now()
-
-	resp, statusCode, err := h.upstream.Call(c.Context(), route, body)
-	duration := time.Since(start)
-
-	if err != nil {
-		h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
-		return err
-	}
-
-	// Debit tenant balance for token usage
-	cost := calculateCost(route, resp)
-	if cost > 0 {
-		if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
-			slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+	// Guardrails: check messages before routing
+	if h.guardrails != nil {
+		texts := extractMessageTexts(req.Messages)
+		result, err := h.guardrails.CheckMessages(c.Context(), authCtx.TenantID, texts, req.Model)
+		if err != nil {
+			slog.Error("guardrails check failed", "error", err)
+		} else if result.Blocked {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fiber.Map{
+					"message":    "Request blocked by content policy",
+					"type":       "guardrail_violation",
+					"code":       "content_policy_violation",
+					"violations": result.Violations,
+				},
+			})
+		} else if len(result.Redactions) > 0 {
+			applyRedactions(req.Messages, result.Redactions)
 		}
 	}
 
-	h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
-	return c.JSON(resp)
+	// Resolve all candidate routes for retry/fallback
+	tenantID := &authCtx.TenantID
+	routes, err := h.router.ResolveAll(c.Context(), req.Model, tenantID, req.MaxTokens)
+	if err != nil {
+		return err
+	}
+
+	if req.Stream {
+		req.Model = routes[0].ExternalID // will be overwritten per-route in handleStreamWithRetry
+		body, _ := json.Marshal(req)
+		return h.handleStreamWithRetry(c, routes, &req, requestedModel, authCtx.TenantID, body)
+	}
+
+	// Check response cache for non-streaming requests
+	cacheKey := gateway.GenerateKey(authCtx.TenantID.String(), &req)
+	if h.cache != nil {
+		if cached := h.cache.Get(c.Context(), cacheKey); cached != nil {
+			c.Set("X-Cache", "HIT")
+			if h.metrics != nil {
+				h.metrics.ObserveCacheHit()
+			}
+			return c.JSON(cached)
+		}
+		if h.metrics != nil {
+			h.metrics.ObserveCacheMiss()
+		}
+	}
+
+	return h.handleNonStreamWithRetry(c, routes, &req, requestedModel, authCtx.TenantID, cacheKey)
 }
 
-func (h *GatewayHandlers) handleStream(c *fiber.Ctx, route *gateway.RouteResult, requestedModel string, tenantID kernel.TenantID, body []byte) error {
+func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, req *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, cacheKey string) error {
+	maxAttempts := gateway.MaxRetries + 1
+	if maxAttempts > len(routes) {
+		maxAttempts = len(routes)
+	}
+
+	var lastErr error
+	var lastStatus int
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		route := routes[attempt]
+
+		// Rewrite model to this route's external ID
+		req.Model = route.ExternalID
+		body, _ := json.Marshal(req)
+
+		start := time.Now()
+		resp, statusCode, err := h.upstream.Call(c.Context(), route, body)
+		duration := time.Since(start)
+
+		if err != nil {
+			h.healthTracker.ReportError(route.KeyID, statusCode)
+			lastErr = err
+			lastStatus = statusCode
+
+			// Auth errors: permanently blacklist, try next route
+			if gateway.IsAuthError(statusCode) {
+				slog.Warn("auth error from provider, trying fallback",
+					"provider", route.ProviderID, "key_id", route.KeyID, "status", statusCode, "attempt", attempt+1)
+				if h.metrics != nil {
+					h.metrics.ObserveRetry(route.ProviderID.String(), "auth_error")
+					h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", statusCode))
+				}
+				continue
+			}
+
+			// Retryable errors: try next route
+			if gateway.IsRetryable(statusCode) && attempt < maxAttempts-1 {
+				slog.Warn("retryable error from provider, trying fallback",
+					"provider", route.ProviderID, "key_id", route.KeyID, "status", statusCode, "attempt", attempt+1)
+				if h.metrics != nil {
+					h.metrics.ObserveRetry(route.ProviderID.String(), fmt.Sprintf("http_%d", statusCode))
+					h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", statusCode))
+				}
+				time.Sleep(gateway.RetryDelay(attempt))
+				continue
+			}
+
+			// Non-retryable error: fail immediately
+			if h.metrics != nil {
+				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "error", duration)
+				h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", statusCode))
+			}
+			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
+			return err
+		}
+
+		h.healthTracker.ReportSuccess(route.KeyID)
+
+		// Debit tenant balance for token usage
+		cost := calculateCost(route, resp)
+		if cost > 0 {
+			if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
+				slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+			}
+		}
+
+		// Set retry headers if we retried
+		if attempt > 0 {
+			c.Set("X-Retry-Count", fmt.Sprintf("%d", attempt))
+		}
+
+		// Store in cache
+		if h.cache != nil {
+			c.Set("X-Cache", "MISS")
+			h.cache.Set(c.Context(), cacheKey, resp)
+		}
+
+		if h.metrics != nil {
+			h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "ok", duration)
+			if resp.Usage != nil {
+				h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+			}
+		}
+
+		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
+		h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
+		return c.JSON(resp)
+	}
+
+	// All retries exhausted
+	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr)
+	h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
+	return lastErr
+}
+
+func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, req *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, _ []byte) error {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
 	c.Set("Transfer-Encoding", "chunked")
 
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
-		start := time.Now()
-		var lastChunk gateway.ChatStreamChunk
+		streamCtx, streamCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer streamCancel()
 
-		streamErr := h.upstream.Stream(c.Context(), route, body, func(chunk []byte) error {
-			// Capture last chunk for usage data (final chunk has usage stats)
-			_ = json.Unmarshal(chunk, &lastChunk)
-
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", chunk); err != nil {
-				return err
-			}
-			return w.Flush()
-		})
-
-		duration := time.Since(start)
-
-		// Build a ChatResponse from the last chunk's usage for logging
-		var resp *gateway.ChatResponse
-		if lastChunk.Usage != nil {
-			resp = &gateway.ChatResponse{
-				Usage:   lastChunk.Usage,
-				Choices: lastChunk.Choices,
-			}
+		maxAttempts := gateway.MaxRetries + 1
+		if maxAttempts > len(routes) {
+			maxAttempts = len(routes)
 		}
 
-		statusCode := http.StatusOK
-		if streamErr != nil {
-			statusCode = http.StatusBadGateway
-			errJSON, _ := json.Marshal(fiber.Map{"error": streamErr.Error()})
-			fmt.Fprintf(w, "data: %s\n\n", errJSON)
-			w.Flush()
-		} else {
+		var lastErr error
+		var lastStatus int
+		var successRoute *gateway.RouteResult
+
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			route := routes[attempt]
+
+			// Rewrite model to this route's external ID
+			req.Model = route.ExternalID
+			body, _ := json.Marshal(req)
+
+			start := time.Now()
+			var lastChunk gateway.ChatStreamChunk
+
+			upstreamStatus, streamErr := h.upstream.Stream(streamCtx, route, body, func(chunk []byte) error {
+				_ = json.Unmarshal(chunk, &lastChunk)
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", chunk); err != nil {
+					return err
+				}
+				return w.Flush()
+			})
+
+			duration := time.Since(start)
+
+			if streamErr != nil {
+				h.healthTracker.ReportError(route.KeyID, upstreamStatus)
+
+				// If data was already written to client (200 OK, mid-stream failure), can't retry
+				if upstreamStatus == http.StatusOK {
+					errJSON, _ := json.Marshal(fiber.Map{"error": streamErr.Error()})
+					fmt.Fprintf(w, "data: %s\n\n", errJSON)
+					w.Flush()
+
+					var resp *gateway.ChatResponse
+					if lastChunk.Usage != nil {
+						resp = &gateway.ChatResponse{Usage: lastChunk.Usage, Choices: lastChunk.Choices}
+					}
+					cost := calculateCost(route, resp)
+					if cost > 0 {
+						debitCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+						defer dc()
+						h.billing.DebitUsage(debitCtx, tenantID, cost, "")
+					}
+					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr)
+					return
+				}
+
+				// Pre-stream error: can retry
+				lastErr = streamErr
+				lastStatus = upstreamStatus
+
+				if gateway.IsAuthError(upstreamStatus) {
+					slog.Warn("stream: auth error, trying fallback",
+						"provider", route.ProviderID, "key_id", route.KeyID, "status", upstreamStatus, "attempt", attempt+1)
+					if h.metrics != nil {
+						h.metrics.ObserveRetry(route.ProviderID.String(), "auth_error")
+						h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", upstreamStatus))
+					}
+					continue
+				}
+
+				if gateway.IsRetryable(upstreamStatus) && attempt < maxAttempts-1 {
+					slog.Warn("stream: retryable error, trying fallback",
+						"provider", route.ProviderID, "key_id", route.KeyID, "status", upstreamStatus, "attempt", attempt+1)
+					if h.metrics != nil {
+						h.metrics.ObserveRetry(route.ProviderID.String(), fmt.Sprintf("http_%d", upstreamStatus))
+						h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", upstreamStatus))
+					}
+					time.Sleep(gateway.RetryDelay(attempt))
+					continue
+				}
+
+				// Non-retryable pre-stream error
+				errJSON, _ := json.Marshal(fiber.Map{"error": streamErr.Error()})
+				fmt.Fprintf(w, "data: %s\n\n", errJSON)
+				w.Flush()
+				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr)
+				return
+			}
+
+			// Success
+			h.healthTracker.ReportSuccess(route.KeyID)
+			successRoute = route
+
+			var resp *gateway.ChatResponse
+			if lastChunk.Usage != nil {
+				resp = &gateway.ChatResponse{Usage: lastChunk.Usage, Choices: lastChunk.Choices}
+			}
+
 			fmt.Fprintf(w, "data: [DONE]\n\n")
 			w.Flush()
-		}
 
-		// Debit tenant balance for token usage
-		cost := calculateCost(route, resp)
-		if cost > 0 {
-			debitCtx, debitCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer debitCancel()
-			if _, err := h.billing.DebitUsage(debitCtx, tenantID, cost, ""); err != nil {
-				slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+			cost := calculateCost(route, resp)
+			if cost > 0 {
+				debitCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+				defer dc()
+				if _, err := h.billing.DebitUsage(debitCtx, tenantID, cost, ""); err != nil {
+					slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+				}
 			}
+
+			if h.metrics != nil {
+				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "ok", duration)
+				if resp != nil && resp.Usage != nil {
+					h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+				}
+			}
+
+			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil)
+			h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
+			return
 		}
 
-		h.usage.LogRequest(tenantID, route, requestedModel, resp, statusCode, duration, true, streamErr)
+		// All attempts exhausted
+		if successRoute == nil {
+			errJSON, _ := json.Marshal(fiber.Map{"error": fmt.Sprintf("all %d stream attempts failed: %v", maxAttempts, lastErr)})
+			fmt.Fprintf(w, "data: %s\n\n", errJSON)
+			w.Flush()
+			h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr)
+			h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
+		}
 	})
 
 	return nil
@@ -209,4 +495,215 @@ func calculateCost(route *gateway.RouteResult, resp *gateway.ChatResponse) float
 		cost += float64(resp.Usage.CompletionTokens) * *route.OutputPrice / 1_000_000
 	}
 	return cost
+}
+
+// checkRateLimit checks both RPM and concurrency limits.
+// Returns a 429 error with Retry-After if the tenant is rate limited.
+func (h *GatewayHandlers) checkRateLimit(c *fiber.Ctx, tenantID kernel.TenantID) error {
+	if h.rateLimiter == nil {
+		return nil
+	}
+	result, err := h.rateLimiter.Check(c.Context(), tenantID.String())
+	if err != nil {
+		return nil // fail open
+	}
+	if result.Limit > 0 {
+		c.Set("X-RateLimit-Limit", fmt.Sprintf("%d", result.Limit))
+		c.Set("X-RateLimit-Remaining", fmt.Sprintf("%d", result.Remaining))
+	}
+	if !result.Allowed {
+		c.Set("Retry-After", fmt.Sprintf("%d", int(result.RetryAfter.Seconds()+1)))
+		if h.metrics != nil {
+			h.metrics.ObserveRateLimit("rpm_or_concurrency")
+		}
+		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+			"error": fiber.Map{
+				"message": "Rate limit exceeded",
+				"type":    "rate_limit_error",
+				"code":    "rate_limit_exceeded",
+			},
+		})
+	}
+	return nil
+}
+
+// checkSpendingLimit checks daily/monthly spending caps for the tenant.
+func (h *GatewayHandlers) checkSpendingLimit(c *fiber.Ctx, tenantID kernel.TenantID) error {
+	if h.billing == nil {
+		return nil
+	}
+	result, err := h.billing.CheckSpendingLimit(c.Context(), tenantID)
+	if err != nil {
+		return nil // fail open
+	}
+	if !result.Allowed {
+		return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+			"error": fiber.Map{
+				"message": result.Reason,
+				"type":    "spending_limit_error",
+				"code":    "spending_limit_exceeded",
+			},
+		})
+	}
+	return nil
+}
+
+// ===========================================================================
+// Rate Limit Config CRUD
+// ===========================================================================
+
+func (h *GatewayHandlers) GetRateLimitConfig(c *fiber.Ctx) error {
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+
+	cfg, err := h.rateLimiter.GetConfig(c.Context(), tenantID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to get rate limit config")
+	}
+	if cfg == nil {
+		// Return defaults if no custom config
+		defaults := gateway.DefaultRateLimitConfig()
+		defaults.TenantID = tenantID
+		return c.JSON(defaults)
+	}
+	return c.JSON(cfg)
+}
+
+func (h *GatewayHandlers) UpsertRateLimitConfig(c *fiber.Ctx) error {
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+
+	var req gateway.UpsertRateLimitRequest
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+
+	// Build config with defaults for unset fields
+	defaults := gateway.DefaultRateLimitConfig()
+	cfg := &gateway.RateLimitConfig{
+		TenantID:      tenantID,
+		RPM:           defaults.RPM,
+		MaxConcurrent: defaults.MaxConcurrent,
+	}
+	if req.RPM != nil {
+		cfg.RPM = *req.RPM
+	}
+	if req.MaxConcurrent != nil {
+		cfg.MaxConcurrent = *req.MaxConcurrent
+	}
+
+	saved, err := h.rateLimiter.UpsertConfig(c.Context(), cfg)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to save rate limit config")
+	}
+
+	return c.JSON(saved)
+}
+
+func (h *GatewayHandlers) DeleteRateLimitConfig(c *fiber.Ctx) error {
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+
+	if err := h.rateLimiter.DeleteConfig(c.Context(), tenantID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to delete rate limit config")
+	}
+
+	return c.JSON(fiber.Map{"message": "Rate limit config deleted, tenant will use defaults"})
+}
+
+// ===========================================================================
+// Cache Invalidation
+// ===========================================================================
+
+func (h *GatewayHandlers) InvalidateCacheAll(c *fiber.Ctx) error {
+	if h.cache == nil {
+		return c.JSON(fiber.Map{"message": "cache not configured", "keys_deleted": 0})
+	}
+	deleted, err := h.cache.InvalidateAll(c.Context())
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to invalidate cache")
+	}
+	return c.JSON(fiber.Map{"message": "all cache invalidated", "keys_deleted": deleted})
+}
+
+func (h *GatewayHandlers) InvalidateCacheTenant(c *fiber.Ctx) error {
+	if h.cache == nil {
+		return c.JSON(fiber.Map{"message": "cache not configured", "keys_deleted": 0})
+	}
+	tenantID := c.Params("tenantId")
+	deleted, err := h.cache.InvalidateByTenant(c.Context(), tenantID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to invalidate cache")
+	}
+	return c.JSON(fiber.Map{
+		"message":      fmt.Sprintf("cache invalidated for tenant %s", tenantID),
+		"keys_deleted": deleted,
+	})
+}
+
+// fireWebhook fires a webhook event if webhooks are configured.
+func (h *GatewayHandlers) fireWebhook(tenantID kernel.TenantID, event string, data any) {
+	if h.webhooks != nil {
+		h.webhooks.Fire(tenantID, event, data)
+	}
+}
+
+// fireRequestWebhook fires request.completed or request.failed events.
+func (h *GatewayHandlers) fireRequestWebhook(tenantID kernel.TenantID, route *gateway.RouteResult, requestedModel string, resp *gateway.ChatResponse, statusCode int, duration time.Duration, err error) {
+	if h.webhooks == nil {
+		return
+	}
+
+	data := fiber.Map{
+		"model":       requestedModel,
+		"provider":    route.ProviderID.String(),
+		"status_code": statusCode,
+		"duration_ms": duration.Milliseconds(),
+	}
+	if resp != nil && resp.Usage != nil {
+		data["input_tokens"] = resp.Usage.PromptTokens
+		data["output_tokens"] = resp.Usage.CompletionTokens
+		data["total_tokens"] = resp.Usage.TotalTokens
+	}
+	cost := calculateCost(route, resp)
+	if cost > 0 {
+		data["cost_usd"] = cost
+	}
+
+	if err != nil {
+		data["error"] = err.Error()
+		h.webhooks.Fire(tenantID, webhook.EventRequestFailed, data)
+	} else {
+		h.webhooks.Fire(tenantID, webhook.EventRequestCompleted, data)
+	}
+}
+
+// extractMessageTexts extracts text content from ChatRequest messages.
+func extractMessageTexts(messages []gateway.Message) []string {
+	texts := make([]string, 0, len(messages))
+	for _, m := range messages {
+		switch v := m.Content.(type) {
+		case string:
+			texts = append(texts, v)
+		}
+	}
+	return texts
+}
+
+// applyRedactions applies PII/secrets redactions to message content in place.
+func applyRedactions(messages []gateway.Message, redactions []guardrails.RedactionInfo) {
+	for _, r := range redactions {
+		if r.MessageIndex >= len(messages) {
+			continue
+		}
+		msg := &messages[r.MessageIndex]
+		text, ok := msg.Content.(string)
+		if !ok {
+			continue
+		}
+		// Run the detectors again to get match positions for replacement
+		piiMatches := guardrails.CheckPII(text)
+		secretMatches := guardrails.CheckSecrets(text)
+		allMatches := append(piiMatches, secretMatches...)
+		if len(allMatches) > 0 {
+			msg.Content = guardrails.ApplyRedactions(text, allMatches)
+		}
+	}
 }

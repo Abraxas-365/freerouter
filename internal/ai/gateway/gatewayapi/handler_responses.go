@@ -84,6 +84,17 @@ func (h *GatewayHandlers) Responses(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
 	}
 
+	// Rate limit check
+	if err := h.checkRateLimit(c, authCtx.TenantID); err != nil {
+		return err
+	}
+	defer h.rateLimiter.Release(c.Context(), authCtx.TenantID.String())
+
+	// Spending limit check
+	if err := h.checkSpendingLimit(c, authCtx.TenantID); err != nil {
+		return err
+	}
+
 	var req responsesRequest
 	if err := json.Unmarshal(c.Body(), &req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
@@ -94,205 +105,339 @@ func (h *GatewayHandlers) Responses(c *fiber.Ctx) error {
 
 	requestedModel := req.Model
 
-	// Convert to internal ChatRequest
-	chatReq := responsesToChatRequest(&req)
-
-	// Resolve route
-	tenantID := &authCtx.TenantID
-	route, err := h.router.Resolve(c.Context(), chatReq.Model, tenantID, chatReq.MaxTokens)
-	if err != nil {
-		return err
-	}
-
-	chatReq.Model = route.ExternalID
-	body, _ := json.Marshal(chatReq)
-
-	if req.Stream {
-		return h.handleResponsesStream(c, route, requestedModel, authCtx.TenantID, body)
-	}
-	return h.handleResponsesNonStream(c, route, requestedModel, authCtx.TenantID, body)
-}
-
-func (h *GatewayHandlers) handleResponsesNonStream(c *fiber.Ctx, route *gateway.RouteResult, requestedModel string, tenantID kernel.TenantID, body []byte) error {
-	start := time.Now()
-
-	resp, statusCode, err := h.upstream.Call(c.Context(), route, body)
-	duration := time.Since(start)
-
-	if err != nil {
-		h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
-		return err
-	}
-
-	cost := calculateCost(route, resp)
-	if cost > 0 {
-		if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
-			slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+	// Guardrails: check input before routing
+	if h.guardrails != nil {
+		texts := extractResponsesTexts(&req)
+		result, err := h.guardrails.CheckMessages(c.Context(), authCtx.TenantID, texts, req.Model)
+		if err != nil {
+			slog.Error("guardrails check failed", "error", err)
+		} else if result.Blocked {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fiber.Map{
+					"message":    "Request blocked by content policy",
+					"type":       "guardrail_violation",
+					"code":       "content_policy_violation",
+					"violations": result.Violations,
+				},
+			})
 		}
 	}
 
-	h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
+	// Convert to internal ChatRequest
+	chatReq := responsesToChatRequest(&req)
 
-	// Convert OpenAI response → Responses API format
-	respAPI := chatResponseToResponses(resp, requestedModel)
-	return c.JSON(respAPI)
+	// Resolve all candidate routes for retry/fallback
+	tenantID := &authCtx.TenantID
+	routes, err := h.router.ResolveAll(c.Context(), chatReq.Model, tenantID, chatReq.MaxTokens)
+	if err != nil {
+		return err
+	}
+
+	if req.Stream {
+		return h.handleResponsesStreamWithRetry(c, routes, &chatReq, requestedModel, authCtx.TenantID)
+	}
+
+	// Check response cache
+	cacheKey := gateway.GenerateKey(authCtx.TenantID.String(), &chatReq)
+	if h.cache != nil {
+		if cached := h.cache.Get(c.Context(), cacheKey); cached != nil {
+			c.Set("X-Cache", "HIT")
+			respAPI := chatResponseToResponses(cached, requestedModel)
+			return c.JSON(respAPI)
+		}
+	}
+
+	return h.handleResponsesNonStreamWithRetry(c, routes, &chatReq, requestedModel, authCtx.TenantID, cacheKey)
 }
 
-func (h *GatewayHandlers) handleResponsesStream(c *fiber.Ctx, route *gateway.RouteResult, requestedModel string, tenantID kernel.TenantID, body []byte) error {
+func (h *GatewayHandlers) handleResponsesNonStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, cacheKey string) error {
+	maxAttempts := gateway.MaxRetries + 1
+	if maxAttempts > len(routes) {
+		maxAttempts = len(routes)
+	}
+
+	var lastErr error
+	var lastStatus int
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		route := routes[attempt]
+		chatReq.Model = route.ExternalID
+		body, _ := json.Marshal(chatReq)
+
+		start := time.Now()
+		resp, statusCode, err := h.upstream.Call(c.Context(), route, body)
+		duration := time.Since(start)
+
+		if err != nil {
+			h.healthTracker.ReportError(route.KeyID, statusCode)
+			lastErr = err
+			lastStatus = statusCode
+
+			if gateway.IsAuthError(statusCode) {
+				continue
+			}
+			if gateway.IsRetryable(statusCode) && attempt < maxAttempts-1 {
+				time.Sleep(gateway.RetryDelay(attempt))
+				continue
+			}
+			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
+			return err
+		}
+
+		h.healthTracker.ReportSuccess(route.KeyID)
+
+		cost := calculateCost(route, resp)
+		if cost > 0 {
+			if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
+				slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+			}
+		}
+
+		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
+		h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
+
+		if h.cache != nil {
+			c.Set("X-Cache", "MISS")
+			h.cache.Set(c.Context(), cacheKey, resp)
+		}
+
+		respAPI := chatResponseToResponses(resp, requestedModel)
+		return c.JSON(respAPI)
+	}
+
+	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr)
+	h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
+	return lastErr
+}
+
+func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID) error {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
 
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
-		start := time.Now()
-		var accumulatedUsage *gateway.Usage
-		var lastFinishReason *string
-		respID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
-		msgID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
-		var seqNum int
+		streamCtx, streamCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer streamCancel()
 
-		// response.created
-		writeResponsesSSE(w, "response.created", map[string]any{
-			"response": map[string]any{
-				"id":         respID,
-				"object":     "response",
-				"created_at": time.Now().Unix(),
-				"status":     "in_progress",
-				"output":     []any{},
-				"model":      requestedModel,
-			},
-			"sequence_number": seqNum,
-		})
-		seqNum++
+		maxAttempts := gateway.MaxRetries + 1
+		if maxAttempts > len(routes) {
+			maxAttempts = len(routes)
+		}
 
-		// output_item.added (message)
-		writeResponsesSSE(w, "response.output_item.added", map[string]any{
-			"output_index": 0,
-			"item": map[string]any{
-				"type":    "message",
-				"id":      msgID,
-				"role":    "assistant",
-				"status":  "in_progress",
-				"content": []any{},
-			},
-			"sequence_number": seqNum,
-		})
-		seqNum++
+		var lastErr error
+		var lastStatus int
 
-		// content_part.added
-		writeResponsesSSE(w, "response.content_part.added", map[string]any{
-			"output_index":  0,
-			"content_index": 0,
-			"part":          map[string]string{"type": "output_text", "text": ""},
-			"sequence_number": seqNum,
-		})
-		seqNum++
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			route := routes[attempt]
+			chatReq.Model = route.ExternalID
+			body, _ := json.Marshal(chatReq)
 
-		streamErr := h.upstream.Stream(c.Context(), route, body, func(chunk []byte) error {
-			var streamChunk gateway.ChatStreamChunk
-			if err := json.Unmarshal(chunk, &streamChunk); err != nil {
-				return nil
-			}
+			start := time.Now()
+			var accumulatedUsage *gateway.Usage
+			var lastFinishReason *string
+			headersSent := false
+			respID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
+			msgID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
+			seqNum := 0
 
-			if streamChunk.Usage != nil {
-				accumulatedUsage = streamChunk.Usage
-			}
-
-			for _, choice := range streamChunk.Choices {
-				if choice.FinishReason != nil {
-					lastFinishReason = choice.FinishReason
+			upstreamStatus, streamErr := h.upstream.Stream(streamCtx, route, body, func(chunk []byte) error {
+				// First chunk: write framing events
+				if !headersSent {
+					headersSent = true
+					writeResponsesSSE(w, "response.created", map[string]any{
+						"response": map[string]any{
+							"id": respID, "object": "response", "created_at": time.Now().Unix(),
+							"status": "in_progress", "output": []any{}, "model": requestedModel,
+						},
+						"sequence_number": seqNum,
+					})
+					seqNum++
+					writeResponsesSSE(w, "response.output_item.added", map[string]any{
+						"output_index": 0,
+						"item": map[string]any{
+							"type": "message", "id": msgID, "role": "assistant",
+							"status": "in_progress", "content": []any{},
+						},
+						"sequence_number": seqNum,
+					})
+					seqNum++
+					writeResponsesSSE(w, "response.content_part.added", map[string]any{
+						"output_index": 0, "content_index": 0,
+						"part": map[string]string{"type": "output_text", "text": ""},
+						"sequence_number": seqNum,
+					})
+					seqNum++
 				}
-				if choice.Delta != nil && choice.Delta.Content != nil {
-					text, ok := choice.Delta.Content.(string)
-					if ok && text != "" {
-						writeResponsesSSE(w, "response.output_text.delta", map[string]any{
-							"output_index":    0,
-							"content_index":   0,
-							"delta":           text,
-							"sequence_number": seqNum,
-						})
-						seqNum++
+
+				var streamChunk gateway.ChatStreamChunk
+				if err := json.Unmarshal(chunk, &streamChunk); err != nil {
+					return nil
+				}
+				if streamChunk.Usage != nil {
+					accumulatedUsage = streamChunk.Usage
+				}
+				for _, choice := range streamChunk.Choices {
+					if choice.FinishReason != nil {
+						lastFinishReason = choice.FinishReason
+					}
+					if choice.Delta != nil && choice.Delta.Content != nil {
+						if text, ok := choice.Delta.Content.(string); ok && text != "" {
+							writeResponsesSSE(w, "response.output_text.delta", map[string]any{
+								"output_index": 0, "content_index": 0,
+								"delta": text, "sequence_number": seqNum,
+							})
+							seqNum++
+						}
 					}
 				}
+				return nil
+			})
+
+			duration := time.Since(start)
+
+			if streamErr != nil {
+				h.healthTracker.ReportError(route.KeyID, upstreamStatus)
+
+				// Mid-stream failure: can't retry
+				if headersSent {
+					writeResponsesSSE(w, "response.content_part.done", map[string]any{
+						"output_index": 0, "content_index": 0,
+						"part": map[string]string{"type": "output_text", "text": ""},
+						"sequence_number": seqNum,
+					})
+					seqNum++
+					writeResponsesSSE(w, "response.output_item.done", map[string]any{
+						"output_index": 0,
+						"item": map[string]any{"type": "message", "id": msgID, "role": "assistant", "status": "incomplete"},
+						"sequence_number": seqNum,
+					})
+					seqNum++
+					writeResponsesSSE(w, "response.failed", map[string]any{
+						"response": map[string]any{
+							"id": respID, "object": "response", "created_at": time.Now().Unix(),
+							"status": "failed", "model": requestedModel,
+						},
+						"sequence_number": seqNum,
+					})
+
+					var resp *gateway.ChatResponse
+					if accumulatedUsage != nil {
+						resp = &gateway.ChatResponse{Usage: accumulatedUsage}
+					}
+					cost := calculateCost(route, resp)
+					if cost > 0 {
+						dCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+						defer dc()
+						h.billing.DebitUsage(dCtx, tenantID, cost, "")
+					}
+					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr)
+					return
+				}
+
+				// Pre-stream error: can retry
+				lastErr = streamErr
+				lastStatus = upstreamStatus
+
+				if gateway.IsAuthError(upstreamStatus) {
+					if h.metrics != nil {
+						h.metrics.ObserveRetry(route.ProviderID.String(), "auth_error")
+					}
+					continue
+				}
+				if gateway.IsRetryable(upstreamStatus) && attempt < maxAttempts-1 {
+					if h.metrics != nil {
+						h.metrics.ObserveRetry(route.ProviderID.String(), fmt.Sprintf("http_%d", upstreamStatus))
+					}
+					time.Sleep(gateway.RetryDelay(attempt))
+					continue
+				}
+
+				// Non-retryable
+				errEvt := map[string]any{
+					"response": map[string]any{
+						"id": respID, "object": "response", "created_at": time.Now().Unix(),
+						"status": "failed", "model": requestedModel,
+					},
+					"sequence_number": 0,
+				}
+				writeResponsesSSE(w, "response.failed", errEvt)
+				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr)
+				return
 			}
-			return nil
-		})
 
-		duration := time.Since(start)
+			// Success
+			h.healthTracker.ReportSuccess(route.KeyID)
 
-		// content_part.done
-		writeResponsesSSE(w, "response.content_part.done", map[string]any{
-			"output_index":    0,
-			"content_index":   0,
-			"part":            map[string]string{"type": "output_text", "text": ""},
-			"sequence_number": seqNum,
-		})
-		seqNum++
+			writeResponsesSSE(w, "response.content_part.done", map[string]any{
+				"output_index": 0, "content_index": 0,
+				"part": map[string]string{"type": "output_text", "text": ""},
+				"sequence_number": seqNum,
+			})
+			seqNum++
 
-		// output_item.done
-		status := "completed"
-		if lastFinishReason != nil && *lastFinishReason == "length" {
-			status = "incomplete"
+			status := "completed"
+			if lastFinishReason != nil && *lastFinishReason == "length" {
+				status = "incomplete"
+			}
+			writeResponsesSSE(w, "response.output_item.done", map[string]any{
+				"output_index": 0,
+				"item": map[string]any{"type": "message", "id": msgID, "role": "assistant", "status": status},
+				"sequence_number": seqNum,
+			})
+			seqNum++
+
+			completedResp := map[string]any{
+				"id": respID, "object": "response", "created_at": time.Now().Unix(),
+				"status": status, "model": requestedModel,
+			}
+			if accumulatedUsage != nil {
+				completedResp["usage"] = map[string]int{
+					"input_tokens":  accumulatedUsage.PromptTokens,
+					"output_tokens": accumulatedUsage.CompletionTokens,
+					"total_tokens":  accumulatedUsage.TotalTokens,
+				}
+			}
+			writeResponsesSSE(w, "response.completed", map[string]any{
+				"response": completedResp, "sequence_number": seqNum,
+			})
+
+			var resp *gateway.ChatResponse
+			if accumulatedUsage != nil {
+				resp = &gateway.ChatResponse{Usage: accumulatedUsage}
+			}
+
+			cost := calculateCost(route, resp)
+			if cost > 0 {
+				dCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+				defer dc()
+				if _, err := h.billing.DebitUsage(dCtx, tenantID, cost, ""); err != nil {
+					slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+				}
+			}
+
+			if h.metrics != nil {
+				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "responses", "ok", duration)
+				if resp != nil && resp.Usage != nil {
+					h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+				}
+			}
+
+			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil)
+			h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
+			return
 		}
-		writeResponsesSSE(w, "response.output_item.done", map[string]any{
-			"output_index": 0,
-			"item": map[string]any{
-				"type":   "message",
-				"id":     msgID,
-				"role":   "assistant",
-				"status": status,
+
+		// All attempts exhausted
+		errEvt := map[string]any{
+			"response": map[string]any{
+				"id": fmt.Sprintf("resp_%d", time.Now().UnixNano()), "object": "response",
+				"created_at": time.Now().Unix(), "status": "failed", "model": requestedModel,
 			},
-			"sequence_number": seqNum,
-		})
-		seqNum++
-
-		// response.completed
-		completedResp := map[string]any{
-			"id":         respID,
-			"object":     "response",
-			"created_at": time.Now().Unix(),
-			"status":     status,
-			"model":      requestedModel,
+			"sequence_number": 0,
 		}
-		if accumulatedUsage != nil {
-			completedResp["usage"] = map[string]int{
-				"input_tokens":  accumulatedUsage.PromptTokens,
-				"output_tokens": accumulatedUsage.CompletionTokens,
-				"total_tokens":  accumulatedUsage.TotalTokens,
-			}
-		}
-
-		eventType := "response.completed"
-		if streamErr != nil {
-			eventType = "response.failed"
-			completedResp["status"] = "failed"
-		}
-		writeResponsesSSE(w, eventType, map[string]any{
-			"response":        completedResp,
-			"sequence_number": seqNum,
-		})
-
-		// Build response for billing/logging
-		var resp *gateway.ChatResponse
-		if accumulatedUsage != nil {
-			resp = &gateway.ChatResponse{Usage: accumulatedUsage}
-		}
-
-		statusCode := http.StatusOK
-		if streamErr != nil {
-			statusCode = http.StatusBadGateway
-		}
-
-		cost := calculateCost(route, resp)
-		if cost > 0 {
-			debitCtx, debitCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer debitCancel()
-			if _, err := h.billing.DebitUsage(debitCtx, tenantID, cost, ""); err != nil {
-				slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
-			}
-		}
-
-		h.usage.LogRequest(tenantID, route, requestedModel, resp, statusCode, duration, true, streamErr)
+		writeResponsesSSE(w, "response.failed", errEvt)
+		h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr)
+		h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	})
 
 	return nil
@@ -524,4 +669,17 @@ func writeResponsesSSE(w *bufio.Writer, eventType string, data any) {
 	jsonData, _ := json.Marshal(data)
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, jsonData)
 	w.Flush()
+}
+
+// extractResponsesTexts extracts text content from Responses API input.
+func extractResponsesTexts(req *responsesRequest) []string {
+	var texts []string
+	if req.Instructions != "" {
+		texts = append(texts, req.Instructions)
+	}
+	switch v := req.Input.(type) {
+	case string:
+		texts = append(texts, v)
+	}
+	return texts
 }

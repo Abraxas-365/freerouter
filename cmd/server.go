@@ -11,11 +11,13 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/errx"
 	"github.com/Abraxas-365/freerouter/internal/logx"
 	// manifesto:server-imports
+	"github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -183,9 +185,25 @@ func registerRoutes(app *fiber.App, container *Container) {
 	container.Billing.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > Billing routes registered")
 
+	container.AI.Guardrails.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  > Guardrails routes registered")
+
+	container.Webhook.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  > Webhook routes registered")
+
 	// Gateway (on root, not under /api/v1 — OpenAI-compatible /v1/chat/completions)
 	container.AI.Gateway.Handlers.RegisterRoutes(app, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > Gateway routes registered")
+
+	// Rate limit config CRUD (under /api/v1)
+	container.AI.Gateway.Handlers.RegisterAdminRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  > Rate limit config routes registered")
+
+	// Prometheus metrics endpoint
+	app.Get("/metrics", adaptor.HTTPHandler(
+		promhttp.HandlerFor(container.AI.Gateway.Metrics.Registry, promhttp.HandlerOpts{}),
+	))
+	logx.Info("  > Metrics endpoint registered")
 
 	// manifesto:route-registration
 

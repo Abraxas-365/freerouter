@@ -115,14 +115,16 @@ type ChatStreamChunk struct {
 
 // RouteResult holds the resolved provider context for a request
 type RouteResult struct {
-	ProviderID  kernel.ProviderID    // e.g. "openai"
-	ExternalID  string               // Provider's model identifier (e.g. "gpt-4o-2024-08-06")
-	MappingID   kernel.MappingID     // model_provider_mapping ID
-	Token       string               // Decrypted provider API key
-	BaseURL     string               // Upstream endpoint (e.g. "https://api.openai.com/v1")
-	KeyID       kernel.ProviderKeyID // provider_key ID (for logging)
-	InputPrice  *float64
-	OutputPrice *float64
+	ProviderID      kernel.ProviderID    // e.g. "openai"
+	ExternalID      string               // Provider's model identifier (e.g. "gpt-4o-2024-08-06")
+	MappingID       kernel.MappingID     // model_provider_mapping ID
+	Token           string               // Decrypted provider API key
+	BaseURL         string               // Upstream endpoint (e.g. "https://api.openai.com/v1")
+	KeyID           kernel.ProviderKeyID // provider_key ID (for logging)
+	InputPrice      *float64
+	OutputPrice     *float64
+	IsFallback      bool   // true if this route is from a fallback model
+	FallbackModelID string // the canonical model ID used (differs from requested if fallback)
 }
 
 // RequestLog captures metadata about a completed gateway request
@@ -141,4 +143,60 @@ type RequestLog struct {
 	Duration         time.Duration `json:"duration_ms"`
 	Streamed         bool          `json:"streamed"`
 	Error            string        `json:"error,omitempty"`
+}
+
+// ============================================================================
+// Cost Estimation
+// ============================================================================
+
+// CostEstimateRequest is the input for cost estimation.
+type CostEstimateRequest struct {
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	MaxTokens *int      `json:"max_tokens,omitempty"`
+}
+
+// CostEstimateResponse is the result of a cost estimation.
+type CostEstimateResponse struct {
+	Model                string   `json:"model"`
+	Provider             string   `json:"provider"`
+	EstimatedInputTokens int      `json:"estimated_input_tokens"`
+	MaxOutputTokens      int      `json:"max_output_tokens"`
+	InputPricePerMillion *float64 `json:"input_price_per_million,omitempty"`
+	OutputPricePerMillion *float64 `json:"output_price_per_million,omitempty"`
+	EstimatedInputCost   float64  `json:"estimated_input_cost_usd"`
+	EstimatedOutputCost  float64  `json:"estimated_output_cost_usd"`
+	EstimatedTotalCost   float64  `json:"estimated_total_cost_usd"`
+}
+
+// EstimateTokens approximates token count from text.
+// Uses the common heuristic of ~4 characters per token (works for English).
+func EstimateTokens(text string) int {
+	if len(text) == 0 {
+		return 0
+	}
+	// ~4 chars per token is a widely used approximation
+	tokens := len(text) / 4
+	if tokens == 0 {
+		tokens = 1
+	}
+	return tokens
+}
+
+// EstimateMessageTokens estimates the total input tokens for a set of messages.
+// Adds ~4 tokens per message for role/formatting overhead.
+func EstimateMessageTokens(messages []Message) int {
+	total := 0
+	for _, m := range messages {
+		total += 4 // per-message overhead (role, separators)
+		switch v := m.Content.(type) {
+		case string:
+			total += EstimateTokens(v)
+		}
+		if m.Name != "" {
+			total += EstimateTokens(m.Name)
+		}
+	}
+	total += 2 // reply priming
+	return total
 }

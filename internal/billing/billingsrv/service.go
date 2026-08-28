@@ -11,11 +11,12 @@ import (
 )
 
 type BillingService struct {
-	repo billing.BillingRepository
+	repo          billing.BillingRepository
+	spendingRepo  billing.SpendingLimitRepository // nil = no spending limits
 }
 
-func NewBillingService(repo billing.BillingRepository) *BillingService {
-	return &BillingService{repo: repo}
+func NewBillingService(repo billing.BillingRepository, spendingRepo billing.SpendingLimitRepository) *BillingService {
+	return &BillingService{repo: repo, spendingRepo: spendingRepo}
 }
 
 // GetBalance returns the current balance for a tenant
@@ -86,7 +87,7 @@ func (s *BillingService) QueryTransactions(ctx context.Context, q billing.Transa
 	return &billing.TransactionListResponse{Transactions: dtos, Total: total}, nil
 }
 
-// GetUsageSummary returns total spend for a tenant in a time period
+// GetSpendSummary returns total spend for a tenant in a time period
 func (s *BillingService) GetSpendSummary(ctx context.Context, tenantID kernel.TenantID, from, to *time.Time) (float64, error) {
 	q := billing.TransactionQuery{
 		TenantID: tenantID,
@@ -106,4 +107,88 @@ func (s *BillingService) GetSpendSummary(ctx context.Context, tenantID kernel.Te
 		totalSpend += -t.Amount // Usage amounts are negative
 	}
 	return totalSpend, nil
+}
+
+// ============================================================================
+// Spending Limits
+// ============================================================================
+
+// CheckSpendingLimit verifies the tenant hasn't exceeded daily/monthly caps.
+func (s *BillingService) CheckSpendingLimit(ctx context.Context, tenantID kernel.TenantID) (*billing.SpendingCheckResult, error) {
+	if s.spendingRepo == nil {
+		return &billing.SpendingCheckResult{Allowed: true}, nil
+	}
+
+	cfg, err := s.spendingRepo.GetByTenantID(ctx, tenantID)
+	if err != nil {
+		return &billing.SpendingCheckResult{Allowed: true}, nil // fail open on error
+	}
+	if cfg == nil {
+		return &billing.SpendingCheckResult{Allowed: true}, nil // no limits configured
+	}
+
+	result := &billing.SpendingCheckResult{
+		Allowed:      true,
+		DailyLimit:   cfg.DailyLimitUSD,
+		MonthlyLimit: cfg.MonthlyLimitUSD,
+	}
+
+	// Check daily limit
+	if cfg.DailyLimitUSD != nil {
+		dailySpend, err := s.spendingRepo.GetDailySpend(ctx, tenantID)
+		if err != nil {
+			return &billing.SpendingCheckResult{Allowed: true}, nil
+		}
+		result.DailySpend = dailySpend
+		if dailySpend >= *cfg.DailyLimitUSD {
+			result.Allowed = false
+			result.Reason = fmt.Sprintf("daily spending limit exceeded: $%.2f / $%.2f", dailySpend, *cfg.DailyLimitUSD)
+			return result, nil
+		}
+	}
+
+	// Check monthly limit
+	if cfg.MonthlyLimitUSD != nil {
+		monthlySpend, err := s.spendingRepo.GetMonthlySpend(ctx, tenantID)
+		if err != nil {
+			return &billing.SpendingCheckResult{Allowed: true}, nil
+		}
+		result.MonthlySpend = monthlySpend
+		if monthlySpend >= *cfg.MonthlyLimitUSD {
+			result.Allowed = false
+			result.Reason = fmt.Sprintf("monthly spending limit exceeded: $%.2f / $%.2f", monthlySpend, *cfg.MonthlyLimitUSD)
+			return result, nil
+		}
+	}
+
+	return result, nil
+}
+
+// GetSpendingLimit returns the spending limit config for a tenant.
+func (s *BillingService) GetSpendingLimit(ctx context.Context, tenantID kernel.TenantID) (*billing.SpendingLimitConfig, error) {
+	if s.spendingRepo == nil {
+		return nil, nil
+	}
+	return s.spendingRepo.GetByTenantID(ctx, tenantID)
+}
+
+// UpsertSpendingLimit creates or updates spending limits for a tenant.
+func (s *BillingService) UpsertSpendingLimit(ctx context.Context, tenantID kernel.TenantID, req billing.UpsertSpendingLimitRequest) (*billing.SpendingLimitConfig, error) {
+	if s.spendingRepo == nil {
+		return nil, fmt.Errorf("spending limits not configured")
+	}
+	cfg := &billing.SpendingLimitConfig{
+		TenantID:        tenantID,
+		DailyLimitUSD:   req.DailyLimitUSD,
+		MonthlyLimitUSD: req.MonthlyLimitUSD,
+	}
+	return s.spendingRepo.Upsert(ctx, cfg)
+}
+
+// DeleteSpendingLimit removes spending limits for a tenant.
+func (s *BillingService) DeleteSpendingLimit(ctx context.Context, tenantID kernel.TenantID) error {
+	if s.spendingRepo == nil {
+		return fmt.Errorf("spending limits not configured")
+	}
+	return s.spendingRepo.Delete(ctx, tenantID)
 }

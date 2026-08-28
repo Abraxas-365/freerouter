@@ -451,3 +451,51 @@ func (r *PostgresMappingRepository) exists(ctx context.Context, id kernel.Mappin
 	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM model_provider_mappings WHERE id = $1)`, id.String())
 	return exists, err
 }
+
+// ============================================================================
+// Fallback Repository
+// ============================================================================
+
+type PostgresFallbackRepository struct {
+	db *sqlx.DB
+}
+
+func NewPostgresFallbackRepository(db *sqlx.DB) provider.FallbackRepository {
+	return &PostgresFallbackRepository{db: db}
+}
+
+func (r *PostgresFallbackRepository) FindByModelID(ctx context.Context, modelID kernel.ModelID) ([]*provider.ModelFallback, error) {
+	var fallbacks []*provider.ModelFallback
+	err := r.db.SelectContext(ctx, &fallbacks, `
+		SELECT id, model_id, fallback_model_id, priority, enabled, created_at
+		FROM model_fallbacks
+		WHERE model_id = $1 AND enabled = true
+		ORDER BY priority ASC
+	`, modelID.String())
+	if err != nil {
+		return nil, errx.Wrap(err, "failed to find fallbacks", errx.TypeInternal)
+	}
+	return fallbacks, nil
+}
+
+func (r *PostgresFallbackRepository) Save(ctx context.Context, f provider.ModelFallback) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO model_fallbacks (id, model_id, fallback_model_id, priority, enabled, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (model_id, fallback_model_id) DO UPDATE SET
+			priority = EXCLUDED.priority,
+			enabled = EXCLUDED.enabled
+	`, f.ID, f.ModelID, f.FallbackModelID, f.Priority, f.Enabled, f.CreatedAt)
+	if err != nil {
+		return errx.Wrap(err, "failed to save fallback", errx.TypeInternal)
+	}
+	return nil
+}
+
+func (r *PostgresFallbackRepository) Delete(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM model_fallbacks WHERE id = $1`, id)
+	if err != nil {
+		return errx.Wrap(err, "failed to delete fallback", errx.TypeInternal)
+	}
+	return nil
+}

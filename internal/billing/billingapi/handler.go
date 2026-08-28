@@ -25,6 +25,13 @@ func (h *BillingHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 	b.Post("/top-up", authMiddleware.RequireScope("billing:write"), h.TopUp)
 	b.Post("/adjust", authMiddleware.RequireScope("billing:admin"), h.Adjust)
 	b.Get("/transactions", authMiddleware.RequireScope("billing:read"), h.ListTransactions)
+
+	// Spending limits
+	sl := router.Group("/spending-limits", authMiddleware.Authenticate())
+	sl.Get("/:tenantId", authMiddleware.RequireScope("billing:read"), h.GetSpendingLimit)
+	sl.Put("/:tenantId", authMiddleware.RequireScope("billing:write"), h.UpsertSpendingLimit)
+	sl.Delete("/:tenantId", authMiddleware.RequireScope("billing:write"), h.DeleteSpendingLimit)
+	sl.Get("/:tenantId/check", authMiddleware.RequireScope("billing:read"), h.CheckSpendingLimit)
 }
 
 func (h *BillingHandlers) GetBalance(c *fiber.Ctx) error {
@@ -115,4 +122,60 @@ func (h *BillingHandlers) ListTransactions(c *fiber.Ctx) error {
 		return err
 	}
 	return c.JSON(response)
+}
+
+// ============================================================================
+// Spending Limit handlers
+// ============================================================================
+
+func (h *BillingHandlers) GetSpendingLimit(c *fiber.Ctx) error {
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+
+	cfg, err := h.service.GetSpendingLimit(c.Context(), tenantID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to get spending limit")
+	}
+	if cfg == nil {
+		return c.JSON(fiber.Map{
+			"tenant_id":         tenantID,
+			"daily_limit_usd":   nil,
+			"monthly_limit_usd": nil,
+			"message":           "no spending limits configured",
+		})
+	}
+	return c.JSON(cfg)
+}
+
+func (h *BillingHandlers) UpsertSpendingLimit(c *fiber.Ctx) error {
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+
+	var req billing.UpsertSpendingLimitRequest
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+
+	cfg, err := h.service.UpsertSpendingLimit(c.Context(), tenantID, req)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to save spending limit")
+	}
+	return c.JSON(cfg)
+}
+
+func (h *BillingHandlers) DeleteSpendingLimit(c *fiber.Ctx) error {
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+
+	if err := h.service.DeleteSpendingLimit(c.Context(), tenantID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to delete spending limit")
+	}
+	return c.JSON(fiber.Map{"message": "Spending limit deleted"})
+}
+
+func (h *BillingHandlers) CheckSpendingLimit(c *fiber.Ctx) error {
+	tenantID := kernel.NewTenantID(c.Params("tenantId"))
+
+	result, err := h.service.CheckSpendingLimit(c.Context(), tenantID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to check spending limit")
+	}
+	return c.JSON(result)
 }

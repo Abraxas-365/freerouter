@@ -81,6 +81,17 @@ func (h *GatewayHandlers) AnthropicMessages(c *fiber.Ctx) error {
 		return anthropicError(c, http.StatusUnauthorized, "authentication_error", "unauthorized")
 	}
 
+	// Rate limit check
+	if err := h.checkRateLimit(c, authCtx.TenantID); err != nil {
+		return err
+	}
+	defer h.rateLimiter.Release(c.Context(), authCtx.TenantID.String())
+
+	// Spending limit check
+	if err := h.checkSpendingLimit(c, authCtx.TenantID); err != nil {
+		return err
+	}
+
 	var req anthropicMessagesRequest
 	if err := json.Unmarshal(c.Body(), &req); err != nil {
 		return anthropicError(c, http.StatusBadRequest, "invalid_request_error", "invalid request body")
@@ -94,154 +105,274 @@ func (h *GatewayHandlers) AnthropicMessages(c *fiber.Ctx) error {
 
 	requestedModel := req.Model
 
+	// Guardrails: check messages before routing
+	if h.guardrails != nil {
+		texts := extractAnthropicTexts(req.Messages)
+		result, err := h.guardrails.CheckMessages(c.Context(), authCtx.TenantID, texts, req.Model)
+		if err != nil {
+			slog.Error("guardrails check failed", "error", err)
+		} else if result.Blocked {
+			return anthropicError(c, http.StatusBadRequest, "invalid_request_error", "Request blocked by content policy")
+		}
+	}
+
 	// Convert to internal ChatRequest
 	chatReq := anthropicToChatRequest(&req)
 
-	// Resolve route
+	// Resolve all candidate routes for retry/fallback
 	tenantID := &authCtx.TenantID
 	maxTokens := req.MaxTokens
-	route, err := h.router.Resolve(c.Context(), chatReq.Model, tenantID, &maxTokens)
+	routes, err := h.router.ResolveAll(c.Context(), chatReq.Model, tenantID, &maxTokens)
 	if err != nil {
 		return anthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 
-	chatReq.Model = route.ExternalID
-	body, _ := json.Marshal(chatReq)
-
 	if req.Stream {
-		return h.handleAnthropicStream(c, route, requestedModel, authCtx.TenantID, body)
-	}
-	return h.handleAnthropicNonStream(c, route, requestedModel, authCtx.TenantID, body)
-}
-
-func (h *GatewayHandlers) handleAnthropicNonStream(c *fiber.Ctx, route *gateway.RouteResult, requestedModel string, tenantID kernel.TenantID, body []byte) error {
-	start := time.Now()
-
-	resp, statusCode, err := h.upstream.Call(c.Context(), route, body)
-	duration := time.Since(start)
-
-	if err != nil {
-		h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
-		return anthropicError(c, http.StatusBadGateway, "api_error", err.Error())
+		return h.handleAnthropicStreamWithRetry(c, routes, &chatReq, requestedModel, authCtx.TenantID)
 	}
 
-	cost := calculateCost(route, resp)
-	if cost > 0 {
-		if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
-			slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+	// Check response cache
+	cacheKey := gateway.GenerateKey(authCtx.TenantID.String(), &chatReq)
+	if h.cache != nil {
+		if cached := h.cache.Get(c.Context(), cacheKey); cached != nil {
+			c.Set("X-Cache", "HIT")
+			anthropicResp := chatResponseToAnthropic(cached, requestedModel)
+			return c.JSON(anthropicResp)
 		}
 	}
 
-	h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
-
-	// Convert OpenAI response → Anthropic response
-	anthropicResp := chatResponseToAnthropic(resp, requestedModel)
-	return c.JSON(anthropicResp)
+	return h.handleAnthropicNonStreamWithRetry(c, routes, &chatReq, requestedModel, authCtx.TenantID, cacheKey)
 }
 
-func (h *GatewayHandlers) handleAnthropicStream(c *fiber.Ctx, route *gateway.RouteResult, requestedModel string, tenantID kernel.TenantID, body []byte) error {
+func (h *GatewayHandlers) handleAnthropicNonStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, cacheKey string) error {
+	maxAttempts := gateway.MaxRetries + 1
+	if maxAttempts > len(routes) {
+		maxAttempts = len(routes)
+	}
+
+	var lastErr error
+	var lastStatus int
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		route := routes[attempt]
+		chatReq.Model = route.ExternalID
+		body, _ := json.Marshal(chatReq)
+
+		start := time.Now()
+		resp, statusCode, err := h.upstream.Call(c.Context(), route, body)
+		duration := time.Since(start)
+
+		if err != nil {
+			h.healthTracker.ReportError(route.KeyID, statusCode)
+			lastErr = err
+			lastStatus = statusCode
+
+			if gateway.IsAuthError(statusCode) {
+				continue
+			}
+			if gateway.IsRetryable(statusCode) && attempt < maxAttempts-1 {
+				time.Sleep(gateway.RetryDelay(attempt))
+				continue
+			}
+			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err)
+			return anthropicError(c, http.StatusBadGateway, "api_error", err.Error())
+		}
+
+		h.healthTracker.ReportSuccess(route.KeyID)
+
+		cost := calculateCost(route, resp)
+		if cost > 0 {
+			if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
+				slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+			}
+		}
+
+		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil)
+		h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
+
+		if h.cache != nil {
+			c.Set("X-Cache", "MISS")
+			h.cache.Set(c.Context(), cacheKey, resp)
+		}
+
+		anthropicResp := chatResponseToAnthropic(resp, requestedModel)
+		return c.JSON(anthropicResp)
+	}
+
+	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr)
+	h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
+	return anthropicError(c, http.StatusBadGateway, "api_error", lastErr.Error())
+}
+
+func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID) error {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
 
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
-		start := time.Now()
-		var accumulatedUsage *gateway.Usage
-		var lastFinishReason *string
-		msgID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
+		streamCtx, streamCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer streamCancel()
 
-		// message_start event
-		startEvt := map[string]any{
-			"type": "message_start",
-			"message": map[string]any{
-				"id":      msgID,
-				"type":    "message",
-				"role":    "assistant",
-				"model":   requestedModel,
-				"content": []any{},
-				"usage":   map[string]int{"input_tokens": 0, "output_tokens": 0},
-			},
+		maxAttempts := gateway.MaxRetries + 1
+		if maxAttempts > len(routes) {
+			maxAttempts = len(routes)
 		}
-		writeAnthropicSSE(w, "message_start", startEvt)
 
-		// content_block_start for text
-		writeAnthropicSSE(w, "content_block_start", map[string]any{
-			"type":          "content_block_start",
-			"index":         0,
-			"content_block": map[string]string{"type": "text", "text": ""},
-		})
+		var lastErr error
+		var lastStatus int
 
-		streamErr := h.upstream.Stream(c.Context(), route, body, func(chunk []byte) error {
-			var streamChunk gateway.ChatStreamChunk
-			if err := json.Unmarshal(chunk, &streamChunk); err != nil {
-				return nil // skip unparseable chunks
-			}
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			route := routes[attempt]
+			chatReq.Model = route.ExternalID
+			body, _ := json.Marshal(chatReq)
 
-			if streamChunk.Usage != nil {
-				accumulatedUsage = streamChunk.Usage
-			}
+			start := time.Now()
+			var accumulatedUsage *gateway.Usage
+			var lastFinishReason *string
+			headersSent := false
 
-			for _, choice := range streamChunk.Choices {
-				if choice.FinishReason != nil {
-					lastFinishReason = choice.FinishReason
+			upstreamStatus, streamErr := h.upstream.Stream(streamCtx, route, body, func(chunk []byte) error {
+				// First successful chunk — write Anthropic framing headers
+				if !headersSent {
+					headersSent = true
+					msgID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
+					writeAnthropicSSE(w, "message_start", map[string]any{
+						"type": "message_start",
+						"message": map[string]any{
+							"id": msgID, "type": "message", "role": "assistant",
+							"model": requestedModel, "content": []any{},
+							"usage": map[string]int{"input_tokens": 0, "output_tokens": 0},
+						},
+					})
+					writeAnthropicSSE(w, "content_block_start", map[string]any{
+						"type": "content_block_start", "index": 0,
+						"content_block": map[string]string{"type": "text", "text": ""},
+					})
 				}
-				if choice.Delta != nil && choice.Delta.Content != nil {
-					text, ok := choice.Delta.Content.(string)
-					if ok && text != "" {
-						writeAnthropicSSE(w, "content_block_delta", map[string]any{
-							"type":  "content_block_delta",
-							"index": 0,
-							"delta": map[string]string{"type": "text_delta", "text": text},
-						})
+
+				var streamChunk gateway.ChatStreamChunk
+				if err := json.Unmarshal(chunk, &streamChunk); err != nil {
+					return nil
+				}
+				if streamChunk.Usage != nil {
+					accumulatedUsage = streamChunk.Usage
+				}
+				for _, choice := range streamChunk.Choices {
+					if choice.FinishReason != nil {
+						lastFinishReason = choice.FinishReason
+					}
+					if choice.Delta != nil && choice.Delta.Content != nil {
+						if text, ok := choice.Delta.Content.(string); ok && text != "" {
+							writeAnthropicSSE(w, "content_block_delta", map[string]any{
+								"type": "content_block_delta", "index": 0,
+								"delta": map[string]string{"type": "text_delta", "text": text},
+							})
+						}
 					}
 				}
+				return nil
+			})
+
+			duration := time.Since(start)
+
+			if streamErr != nil {
+				h.healthTracker.ReportError(route.KeyID, upstreamStatus)
+
+				// If data was already sent to client, can't retry
+				if headersSent {
+					writeAnthropicSSE(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
+					stopReason := mapFinishReasonToAnthropic(lastFinishReason)
+					deltaEvt := map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stopReason}}
+					if accumulatedUsage != nil {
+						deltaEvt["usage"] = map[string]int{"output_tokens": accumulatedUsage.CompletionTokens}
+					}
+					writeAnthropicSSE(w, "message_delta", deltaEvt)
+					writeAnthropicSSE(w, "message_stop", map[string]any{"type": "message_stop"})
+
+					var resp *gateway.ChatResponse
+					if accumulatedUsage != nil {
+						resp = &gateway.ChatResponse{Usage: accumulatedUsage}
+					}
+					cost := calculateCost(route, resp)
+					if cost > 0 {
+						dCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+						defer dc()
+						h.billing.DebitUsage(dCtx, tenantID, cost, "")
+					}
+					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr)
+					return
+				}
+
+				// Pre-stream error: can retry
+				lastErr = streamErr
+				lastStatus = upstreamStatus
+
+				if gateway.IsAuthError(upstreamStatus) {
+					if h.metrics != nil {
+						h.metrics.ObserveRetry(route.ProviderID.String(), "auth_error")
+					}
+					continue
+				}
+				if gateway.IsRetryable(upstreamStatus) && attempt < maxAttempts-1 {
+					if h.metrics != nil {
+						h.metrics.ObserveRetry(route.ProviderID.String(), fmt.Sprintf("http_%d", upstreamStatus))
+					}
+					time.Sleep(gateway.RetryDelay(attempt))
+					continue
+				}
+
+				// Non-retryable
+				errJSON, _ := json.Marshal(fiber.Map{"type": "error", "error": fiber.Map{"type": "api_error", "message": streamErr.Error()}})
+				fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
+				w.Flush()
+				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr)
+				return
 			}
-			return nil
-		})
 
-		duration := time.Since(start)
+			// Success
+			h.healthTracker.ReportSuccess(route.KeyID)
 
-		// content_block_stop
-		writeAnthropicSSE(w, "content_block_stop", map[string]any{
-			"type":  "content_block_stop",
-			"index": 0,
-		})
-
-		// message_delta with stop_reason and usage
-		stopReason := mapFinishReasonToAnthropic(lastFinishReason)
-		deltaEvt := map[string]any{
-			"type":  "message_delta",
-			"delta": map[string]any{"stop_reason": stopReason},
-		}
-		if accumulatedUsage != nil {
-			deltaEvt["usage"] = map[string]int{"output_tokens": accumulatedUsage.CompletionTokens}
-		}
-		writeAnthropicSSE(w, "message_delta", deltaEvt)
-
-		// message_stop
-		writeAnthropicSSE(w, "message_stop", map[string]any{"type": "message_stop"})
-
-		// Build response for billing/logging
-		var resp *gateway.ChatResponse
-		if accumulatedUsage != nil {
-			resp = &gateway.ChatResponse{Usage: accumulatedUsage}
-		}
-
-		statusCode := http.StatusOK
-		if streamErr != nil {
-			statusCode = http.StatusBadGateway
-		}
-
-		cost := calculateCost(route, resp)
-		if cost > 0 {
-			debitCtx, debitCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer debitCancel()
-			if _, err := h.billing.DebitUsage(debitCtx, tenantID, cost, ""); err != nil {
-				slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+			writeAnthropicSSE(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
+			stopReason := mapFinishReasonToAnthropic(lastFinishReason)
+			deltaEvt := map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stopReason}}
+			if accumulatedUsage != nil {
+				deltaEvt["usage"] = map[string]int{"output_tokens": accumulatedUsage.CompletionTokens}
 			}
+			writeAnthropicSSE(w, "message_delta", deltaEvt)
+			writeAnthropicSSE(w, "message_stop", map[string]any{"type": "message_stop"})
+
+			var resp *gateway.ChatResponse
+			if accumulatedUsage != nil {
+				resp = &gateway.ChatResponse{Usage: accumulatedUsage}
+			}
+
+			cost := calculateCost(route, resp)
+			if cost > 0 {
+				dCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+				defer dc()
+				if _, err := h.billing.DebitUsage(dCtx, tenantID, cost, ""); err != nil {
+					slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+				}
+			}
+
+			if h.metrics != nil {
+				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "anthropic", "ok", duration)
+				if resp != nil && resp.Usage != nil {
+					h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+				}
+			}
+
+			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil)
+			h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
+			return
 		}
 
-		h.usage.LogRequest(tenantID, route, requestedModel, resp, statusCode, duration, true, streamErr)
+		// All attempts exhausted
+		errJSON, _ := json.Marshal(fiber.Map{"type": "error", "error": fiber.Map{"type": "api_error", "message": fmt.Sprintf("all %d stream attempts failed: %v", maxAttempts, lastErr)}})
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
+		w.Flush()
+		h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr)
+		h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	})
 
 	return nil
@@ -498,4 +629,16 @@ func anthropicError(c *fiber.Ctx, status int, errType, message string) error {
 			"message": message,
 		},
 	})
+}
+
+// extractAnthropicTexts extracts text content from Anthropic messages.
+func extractAnthropicTexts(messages []anthropicMsg) []string {
+	texts := make([]string, 0, len(messages))
+	for _, m := range messages {
+		switch v := m.Content.(type) {
+		case string:
+			texts = append(texts, v)
+		}
+	}
+	return texts
 }

@@ -53,3 +53,21 @@ type APIKeyID string
 func NewAPIKeyID(id string) APIKeyID { return APIKeyID(id) }
 func (a APIKeyID) String() string    { return string(a) }
 func (a APIKeyID) IsEmpty() bool     { return string(a) == "" }
+
+type GuardrailConfigID string
+
+func NewGuardrailConfigID(id string) GuardrailConfigID { return GuardrailConfigID(id) }
+func (g GuardrailConfigID) String() string             { return string(g) }
+func (g GuardrailConfigID) IsEmpty() bool              { return string(g) == "" }
+
+type GuardrailRuleID string
+
+func NewGuardrailRuleID(id string) GuardrailRuleID { return GuardrailRuleID(id) }
+func (g GuardrailRuleID) String() string            { return string(g) }
+func (g GuardrailRuleID) IsEmpty() bool             { return string(g) == "" }
+
+type GuardrailViolationID string
+
+func NewGuardrailViolationID(id string) GuardrailViolationID { return GuardrailViolationID(id) }
+func (g GuardrailViolationID) String() string                { return string(g) }
+func (g GuardrailViolationID) IsEmpty() bool                 { return string(g) == "" }

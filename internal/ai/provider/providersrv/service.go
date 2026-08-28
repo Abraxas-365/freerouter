@@ -15,6 +15,7 @@ type ProviderService struct {
 	providerRepo provider.ProviderRepository
 	modelRepo    provider.ModelRepository
 	mappingRepo  provider.MappingRepository
+	fallbackRepo provider.FallbackRepository
 }
 
 // NewProviderService creates a new instance of the provider service
@@ -22,11 +23,13 @@ func NewProviderService(
 	providerRepo provider.ProviderRepository,
 	modelRepo provider.ModelRepository,
 	mappingRepo provider.MappingRepository,
+	fallbackRepo provider.FallbackRepository,
 ) *ProviderService {
 	return &ProviderService{
 		providerRepo: providerRepo,
 		modelRepo:    modelRepo,
 		mappingRepo:  mappingRepo,
+		fallbackRepo: fallbackRepo,
 	}
 }
 
@@ -368,4 +371,40 @@ func (s *ProviderService) UpdateMapping(ctx context.Context, id kernel.MappingID
 
 func (s *ProviderService) DeleteMapping(ctx context.Context, id kernel.MappingID) error {
 	return s.mappingRepo.Delete(ctx, id)
+}
+
+// ============================================================================
+// Fallback operations
+// ============================================================================
+
+func (s *ProviderService) CreateFallback(ctx context.Context, req provider.CreateModelFallbackRequest) (*provider.ModelFallback, error) {
+	// Verify both models exist
+	if _, err := s.modelRepo.FindByID(ctx, req.ModelID); err != nil {
+		return nil, err
+	}
+	if _, err := s.modelRepo.FindByID(ctx, req.FallbackModelID); err != nil {
+		return nil, err
+	}
+
+	f := provider.ModelFallback{
+		ID:              uuid.NewString(),
+		ModelID:         req.ModelID,
+		FallbackModelID: req.FallbackModelID,
+		Priority:        req.Priority,
+		Enabled:         true,
+		CreatedAt:       time.Now().UTC(),
+	}
+
+	if err := s.fallbackRepo.Save(ctx, f); err != nil {
+		return nil, errx.Wrap(err, "failed to save fallback", errx.TypeInternal)
+	}
+	return &f, nil
+}
+
+func (s *ProviderService) ListFallbacks(ctx context.Context, modelID kernel.ModelID) ([]*provider.ModelFallback, error) {
+	return s.fallbackRepo.FindByModelID(ctx, modelID)
+}
+
+func (s *ProviderService) DeleteFallback(ctx context.Context, id string) error {
+	return s.fallbackRepo.Delete(ctx, id)
 }

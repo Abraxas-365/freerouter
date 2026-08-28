@@ -98,12 +98,12 @@ func (l *UsageLog) ToDTO() UsageLogDTO {
 // UsageSummary aggregates usage over a time period
 type UsageSummary struct {
 	TenantID         kernel.TenantID `json:"tenant_id"`
-	TotalRequests    int             `json:"total_requests"`
-	TotalTokens      int             `json:"total_tokens"`
-	PromptTokens     int             `json:"prompt_tokens"`
-	CompletionTokens int             `json:"completion_tokens"`
-	TotalCost        float64         `json:"total_cost"`
-	ErrorCount       int             `json:"error_count"`
+	TotalRequests    int             `db:"total_requests" json:"total_requests"`
+	TotalTokens      int             `db:"total_tokens" json:"total_tokens"`
+	PromptTokens     int             `db:"prompt_tokens" json:"prompt_tokens"`
+	CompletionTokens int             `db:"completion_tokens" json:"completion_tokens"`
+	TotalCost        float64         `db:"total_cost" json:"total_cost"`
+	ErrorCount       int             `db:"error_count" json:"error_count"`
 }
 
 // ModelUsageSummary aggregates usage per model

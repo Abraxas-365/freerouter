@@ -74,32 +74,33 @@ func (u *Upstream) Call(ctx context.Context, route *RouteResult, body []byte) (*
 	return chatResp, resp.StatusCode, nil
 }
 
-// Stream makes a streaming request and calls the callback for each SSE data line
-func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, onChunk StreamCallback) error {
+// Stream makes a streaming request and calls the callback for each SSE data line.
+// Returns the upstream HTTP status code (0 if the request never reached the provider).
+func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, onChunk StreamCallback) (int, error) {
 	translator := GetTranslator(route.ProviderID.String())
 
 	// Transform request to provider-native format
 	providerBody, err := translator.TransformRequest(body, route.ExternalID)
 	if err != nil {
-		return errx.Wrap(err, "failed to transform request", errx.TypeInternal).
+		return 0, errx.Wrap(err, "failed to transform request", errx.TypeInternal).
 			WithDetail("provider", route.ProviderID)
 	}
 
 	req, err := u.buildRequest(ctx, route, providerBody, true)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	resp, err := u.client.Do(req)
 	if err != nil {
-		return errx.Wrap(err, "upstream streaming request failed", errx.TypeInternal).
+		return 0, errx.Wrap(err, "upstream streaming request failed", errx.TypeInternal).
 			WithDetail("provider", route.ProviderID)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return errx.New(
+		return resp.StatusCode, errx.New(
 			fmt.Sprintf("upstream returned %d: %s", resp.StatusCode, string(respBody)),
 			errx.TypeInternal,
 		).WithDetail("provider", route.ProviderID).
@@ -125,7 +126,7 @@ func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, 
 			// Transform the event through the translator
 			transformed, done, err := translator.TransformStreamEvent(data)
 			if err != nil {
-				return errx.Wrap(err, "failed to transform stream event", errx.TypeInternal)
+				return http.StatusOK, errx.Wrap(err, "failed to transform stream event", errx.TypeInternal)
 			}
 
 			if done {
@@ -138,16 +139,16 @@ func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, 
 			}
 
 			if err := onChunk(transformed); err != nil {
-				return err
+				return http.StatusOK, err
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return errx.Wrap(err, "error reading upstream stream", errx.TypeInternal)
+		return http.StatusOK, errx.Wrap(err, "error reading upstream stream", errx.TypeInternal)
 	}
 
-	return nil
+	return http.StatusOK, nil
 }
 
 func (u *Upstream) buildRequest(ctx context.Context, route *RouteResult, body []byte, stream bool) (*http.Request, error) {

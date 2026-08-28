@@ -2,6 +2,7 @@ package aicontainer
 
 import (
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway/gatewaycontainer"
+	"github.com/Abraxas-365/freerouter/internal/ai/guardrails/guardrailscontainer"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider/providercontainer"
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey/providerkeycontainer"
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey/providerkeyinfra"
@@ -11,10 +12,12 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/config"
 	"github.com/Abraxas-365/freerouter/internal/logx"
 	"github.com/jmoiron/sqlx"
+	"github.com/redis/go-redis/v9"
 )
 
 type Deps struct {
 	DB             *sqlx.DB
+	Redis          *redis.Client
 	Cfg            *config.Config
 	BillingRepo    billing.BillingRepository
 	BillingService *billingsrv.BillingService
@@ -25,6 +28,7 @@ type Container struct {
 	ProviderKey *providerkeycontainer.Container
 	Gateway     *gatewaycontainer.Container
 	Usage       *usagecontainer.Container
+	Guardrails  *guardrailscontainer.Container
 }
 
 func New(deps Deps) *Container {
@@ -50,16 +54,24 @@ func New(deps Deps) *Container {
 	c.Usage = usagecontainer.New(deps.DB, deps.Cfg.AI.UsageBufferSize)
 	logx.Info("  Usage logging initialized")
 
-	// 5. Gateway (depends on provider, providerkey, billing, usage)
+	// 6. Guardrails
+	c.Guardrails = guardrailscontainer.New(deps.DB)
+	logx.Info("  Guardrails initialized")
+
+	// 5. Gateway (depends on provider, providerkey, billing, usage, guardrails)
 	c.Gateway = gatewaycontainer.New(gatewaycontainer.Deps{
+		DB:             deps.DB,
 		ModelRepo:      c.Provider.ModelRepo,
 		MappingRepo:    c.Provider.MappingRepo,
 		ProviderRepo:   c.Provider.ProviderRepo,
+		FallbackRepo:   c.Provider.FallbackRepo,
 		KeyRepo:        c.ProviderKey.KeyRepo,
 		Encryptor:      c.ProviderKey.Encryptor,
 		BillingRepo:    deps.BillingRepo,
 		BillingService: deps.BillingService,
 		UsageService:   c.Usage.Service,
+		GuardrailsSvc:  c.Guardrails.Service,
+		Redis:          deps.Redis,
 	})
 	logx.Info("  Gateway initialized")
 

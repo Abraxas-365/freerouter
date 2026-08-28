@@ -37,6 +37,11 @@ func (h *ProviderHandlers) RegisterRoutes(router fiber.Router, authMiddleware *a
 	mappings.Get("/:id", authMiddleware.RequireScope("models:read"), h.GetMapping)
 	mappings.Put("/:id", authMiddleware.RequireScope("models:write"), h.UpdateMapping)
 	mappings.Delete("/:id", authMiddleware.RequireScope("models:delete"), h.DeleteMapping)
+
+	fallbacks := router.Group("/model-fallbacks", authMiddleware.Authenticate())
+	fallbacks.Post("/", authMiddleware.RequireScope("models:write"), h.CreateFallback)
+	fallbacks.Get("/by-model/:modelId", authMiddleware.RequireScope("models:read"), h.ListFallbacks)
+	fallbacks.Delete("/:id", authMiddleware.RequireScope("models:delete"), h.DeleteFallback)
 }
 
 // ============================================================================
@@ -196,4 +201,39 @@ func (h *ProviderHandlers) DeleteMapping(c *fiber.Ctx) error {
 		return err
 	}
 	return c.JSON(fiber.Map{"message": "Mapping deleted successfully"})
+}
+
+// ============================================================================
+// Fallback handlers
+// ============================================================================
+
+func (h *ProviderHandlers) CreateFallback(c *fiber.Ctx) error {
+	req, err := kernel.BindAndValidate[provider.CreateModelFallbackRequest](c)
+	if err != nil {
+		return err
+	}
+
+	f, err := h.service.CreateFallback(c.Context(), req)
+	if err != nil {
+		return err
+	}
+	return c.Status(fiber.StatusCreated).JSON(f)
+}
+
+func (h *ProviderHandlers) ListFallbacks(c *fiber.Ctx) error {
+	fallbacks, err := h.service.ListFallbacks(c.Context(), kernel.NewModelID(c.Params("modelId")))
+	if err != nil {
+		return err
+	}
+	if fallbacks == nil {
+		fallbacks = []*provider.ModelFallback{}
+	}
+	return c.JSON(fiber.Map{"fallbacks": fallbacks, "total": len(fallbacks)})
+}
+
+func (h *ProviderHandlers) DeleteFallback(c *fiber.Ctx) error {
+	if err := h.service.DeleteFallback(c.Context(), c.Params("id")); err != nil {
+		return err
+	}
+	return c.JSON(fiber.Map{"message": "Fallback deleted successfully"})
 }
