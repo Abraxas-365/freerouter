@@ -25,6 +25,20 @@
 | Full setup | `make init` (tidy + services + migrate + seed) | ~15s |
 <!-- AGENTS-GENERATED:END commands -->
 
+## Dev Servers (tmux)
+- Never start long-running servers (frontend dev server, backend `make dev`, etc.) as bare background processes.
+- Run them inside **tmux**, in a **new window** of the **current/same tmux session**, split into panes (one server per pane) so the user can attach and see live output.
+- Pattern:
+  ```
+  tmux new-window -t "$TMUX_SESSION" -n servers
+  tmux send-keys -t "$TMUX_SESSION:servers" 'cd frontend && npm run dev' C-m
+  tmux split-window -t "$TMUX_SESSION:servers" -h
+  tmux send-keys -t "$TMUX_SESSION:servers" 'make dev' C-m
+  ```
+- Reuse the existing session (`$TMUX_SESSION` / `echo $TMUX` to detect it) -- do not spawn a detached/new session.
+- One pane per server; split (`-h`/`-v`) instead of opening additional windows when running multiple servers together.
+
+
 ## Response Style
 - Answer first, elaborate only if needed. No sycophantic openers.
 - For yes/no or status questions, lead with the answer.

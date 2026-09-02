@@ -1,13 +1,28 @@
-// ============================================================================
+// =============================================================================
+// Shared
+// =============================================================================
+
+export interface Paginated<T> {
+  data: T[]
+  total: number
+}
+
+export interface MessageResponse {
+  message: string
+}
+
+// =============================================================================
 // Providers
-// ============================================================================
+// =============================================================================
+
+export type ProviderStatus = "active" | "inactive"
 
 export interface Provider {
   id: string
   name: string
   description: string
-  website?: string
-  status: "active" | "inactive" | "deprecated"
+  website: string
+  status: ProviderStatus
   streaming: boolean
   created_at: string
 }
@@ -15,29 +30,32 @@ export interface Provider {
 export interface CreateProviderRequest {
   name: string
   description: string
-  website?: string
-  streaming?: boolean
+  website: string
+  streaming: boolean
 }
 
 export interface UpdateProviderRequest {
   name?: string
   description?: string
   website?: string
-  status?: Provider["status"]
+  status?: ProviderStatus
   streaming?: boolean
 }
 
-// ============================================================================
+// =============================================================================
 // Models
-// ============================================================================
+// =============================================================================
+
+export type ModelStability = "stable" | "beta" | "experimental"
+export type ModelStatus = "active" | "inactive"
 
 export interface Model {
   id: string
   name: string
   description: string
   family: string
-  stability: "stable" | "beta" | "experimental" | "deprecated"
-  status: "active" | "inactive" | "deprecated"
+  stability: ModelStability
+  status: ModelStatus
   free: boolean
   released_at: string
   created_at: string
@@ -47,15 +65,15 @@ export interface CreateModelRequest {
   name: string
   description: string
   family: string
-  free?: boolean
+  free: boolean
 }
 
 export interface UpdateModelRequest {
   name?: string
   description?: string
   family?: string
-  stability?: Model["stability"]
-  status?: Model["status"]
+  stability?: ModelStability
+  status?: ModelStatus
   free?: boolean
 }
 
@@ -64,12 +82,35 @@ export interface ModelWithMappings {
   mappings: ModelProviderMapping[]
 }
 
-// ============================================================================
+// =============================================================================
 // Model-Provider Mappings
-// ============================================================================
+// =============================================================================
 
 export interface ModelProviderMapping {
   id: string
+  model_id: string
+  provider_id: string
+  external_id: string
+  input_price: number | null
+  output_price: number | null
+  cached_input_price: number | null
+  request_price: number | null
+  image_input_price: number | null
+  context_size: number | null
+  max_output: number | null
+  streaming: boolean
+  vision: boolean
+  reasoning: boolean
+  tools: boolean
+  json_output: boolean
+  region: string | null
+  stability: ModelStability
+  status: ModelStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateMappingRequest {
   model_id: string
   provider_id: string
   external_id: string
@@ -85,27 +126,6 @@ export interface ModelProviderMapping {
   reasoning: boolean
   tools: boolean
   json_output: boolean
-  region?: string
-  stability: Model["stability"]
-  status: Model["status"]
-}
-
-export interface CreateMappingRequest {
-  model_id: string
-  provider_id: string
-  external_id: string
-  input_price?: number
-  output_price?: number
-  cached_input_price?: number
-  request_price?: number
-  image_input_price?: number
-  context_size?: number
-  max_output?: number
-  streaming?: boolean
-  vision?: boolean
-  reasoning?: boolean
-  tools?: boolean
-  json_output?: boolean
   region?: string
 }
 
@@ -124,12 +144,12 @@ export interface UpdateMappingRequest {
   tools?: boolean
   json_output?: boolean
   region?: string
-  status?: Model["status"]
+  status?: ModelStatus
 }
 
-// ============================================================================
+// =============================================================================
 // Model Fallbacks
-// ============================================================================
+// =============================================================================
 
 export interface ModelFallback {
   id: string
@@ -146,21 +166,23 @@ export interface CreateModelFallbackRequest {
   priority: number
 }
 
-// ============================================================================
+// =============================================================================
 // Provider Keys
-// ============================================================================
+// =============================================================================
+
+export type KeyStatus = "active" | "inactive"
 
 export interface ProviderKey {
   id: string
   provider_id: string
-  tenant_id?: string
+  tenant_id: string | null
   token_masked: string
-  base_url?: string
+  base_url: string | null
   name: string
   description: string
   managed: boolean
-  status: "active" | "inactive" | "revoked" | "rate_limited"
-  sort_order?: number
+  status: KeyStatus
+  sort_order: number | null
   created_at: string
 }
 
@@ -170,7 +192,7 @@ export interface CreateProviderKeyRequest {
   token: string
   base_url?: string
   name: string
-  description?: string
+  description: string
 }
 
 export interface UpdateProviderKeyRequest {
@@ -178,19 +200,73 @@ export interface UpdateProviderKeyRequest {
   base_url?: string
   name?: string
   description?: string
-  status?: ProviderKey["status"]
+  status?: KeyStatus
   sort_order?: number
 }
 
 export interface TestKeyResult {
   success: boolean
-  message: string
+  latency_ms: number
   error?: string
 }
 
-// ============================================================================
+// =============================================================================
+// Gateway Config: Rate Limits
+// =============================================================================
+
+export interface RateLimitConfig {
+  tenant_id: string
+  rpm: number
+  max_concurrent: number
+}
+
+export interface UpsertRateLimitRequest {
+  rpm?: number
+  max_concurrent?: number
+}
+
+// =============================================================================
+// Gateway Config: Routing
+// =============================================================================
+
+export type RoutingStrategy = "cheapest" | "lowest-latency" | "round-robin"
+
+export interface RoutingConfig {
+  tenant_id: string
+  strategy: RoutingStrategy
+  created_at: string
+  updated_at: string
+}
+
+export interface UpsertRoutingConfigRequest {
+  strategy: RoutingStrategy
+}
+
+// =============================================================================
+// Gateway: Cost Estimation
+// =============================================================================
+
+export interface CostEstimateRequest {
+  model: string
+  messages: Array<{ role: string; content: string }>
+  max_tokens?: number
+}
+
+export interface CostEstimateResponse {
+  model: string
+  provider: string
+  estimated_input_tokens: number
+  max_output_tokens: number
+  input_price_per_million: number | null
+  output_price_per_million: number | null
+  estimated_input_cost_usd: number
+  estimated_output_cost_usd: number
+  estimated_total_cost_usd: number
+}
+
+// =============================================================================
 // Billing
-// ============================================================================
+// =============================================================================
 
 export interface Balance {
   tenant_id: string
@@ -198,20 +274,22 @@ export interface Balance {
   updated_at: string
 }
 
+export type TransactionType = "top_up" | "usage" | "refund" | "adjust"
+
 export interface Transaction {
   id: string
-  type: "top_up" | "usage" | "refund" | "adjust"
+  type: TransactionType
   amount: number
   balance_after: number
   description: string
-  reference_id?: string
+  reference_id: string
   created_at: string
 }
 
 export interface TopUpRequest {
   amount: number
   description: string
-  reference_id?: string
+  reference_id: string
 }
 
 export interface AdjustRequest {
@@ -219,10 +297,15 @@ export interface AdjustRequest {
   description: string
 }
 
+export interface BillingMutationResponse {
+  balance: Balance
+  transaction: Transaction
+}
+
 export interface SpendingLimit {
   tenant_id: string
-  daily_limit_usd?: number
-  monthly_limit_usd?: number
+  daily_limit_usd: number | null
+  monthly_limit_usd: number | null
   created_at: string
   updated_at: string
 }
@@ -236,14 +319,14 @@ export interface SpendingCheck {
   allowed: boolean
   daily_spend_usd: number
   monthly_spend_usd: number
-  daily_limit_usd?: number
-  monthly_limit_usd?: number
-  reason?: string
+  daily_limit_usd: number | null
+  monthly_limit_usd: number | null
+  reason: string
 }
 
-// ============================================================================
-// Usage
-// ============================================================================
+// =============================================================================
+// Usage Logs
+// =============================================================================
 
 export interface UsageLog {
   id: string
@@ -265,12 +348,12 @@ export interface UsageLog {
 }
 
 export interface UsageLogDetail extends UsageLog {
-  messages?: unknown
-  response_body?: unknown
-  raw_request?: unknown
-  raw_response?: unknown
-  upstream_request?: unknown
-  upstream_response?: unknown
+  messages: unknown
+  response_body: unknown
+  raw_request: unknown
+  raw_response: unknown
+  upstream_request: unknown
+  upstream_response: unknown
   is_debug: boolean
 }
 
@@ -306,8 +389,8 @@ export interface DataRetentionConfig {
   retain_messages: boolean
   retain_response_body: boolean
   retain_debug_payloads: boolean
-  created_at: string
-  updated_at: string
+  created_at?: string
+  updated_at?: string
 }
 
 export interface UpsertRetentionRequest {
@@ -317,13 +400,25 @@ export interface UpsertRetentionRequest {
   retain_debug_payloads: boolean
 }
 
-// ============================================================================
+export interface UsageQuery {
+  model?: string
+  provider?: string
+  from?: string
+  to?: string
+  limit?: number
+  offset?: number
+}
+
+// =============================================================================
 // Guardrails
-// ============================================================================
+// =============================================================================
+
+export type GuardrailAction = "block" | "redact" | "warn" | "allow"
+export type RuleType = "blocked_terms" | "custom_regex"
 
 export interface SystemRuleConfig {
   enabled: boolean
-  action: "block" | "redact" | "warn" | "allow"
+  action: GuardrailAction
 }
 
 export interface SystemRulesConfig {
@@ -345,36 +440,36 @@ export interface GuardrailConfig {
 
 export interface UpsertGuardrailConfigRequest {
   enabled?: boolean
-  system_rules?: Partial<SystemRulesConfig>
+  system_rules?: SystemRulesConfig
 }
 
 export interface GuardrailRule {
   id: string
   tenant_id: string
   name: string
-  type: "blocked_terms" | "custom_regex"
-  config: Record<string, unknown>
+  type: RuleType
+  config: unknown
   priority: number
   enabled: boolean
-  action: "block" | "redact" | "warn"
+  action: GuardrailAction
   created_at: string
   updated_at: string
 }
 
 export interface CreateGuardrailRuleRequest {
   name: string
-  type: GuardrailRule["type"]
-  config: Record<string, unknown>
+  type: RuleType
+  config: unknown
   priority?: number
-  action: GuardrailRule["action"]
+  action: GuardrailAction
 }
 
 export interface UpdateGuardrailRuleRequest {
   name?: string
-  config?: Record<string, unknown>
+  config?: unknown
   priority?: number
   enabled?: boolean
-  action?: GuardrailRule["action"]
+  action?: GuardrailAction
 }
 
 export interface GuardrailViolation {
@@ -384,28 +479,44 @@ export interface GuardrailViolation {
   rule_name: string
   category: string
   action_taken: string
-  matched_pattern?: string
-  matched_content?: string
-  model?: string
+  matched_pattern: string | null
+  matched_content: string | null
+  model: string | null
   created_at: string
+}
+
+export interface RuleViolation {
+  rule_id: string
+  rule_name: string
+  category: string
+  action: GuardrailAction
+  matched_pattern: string
+  matched_content: string
+}
+
+export interface RedactionInfo {
+  message_index: number
+  matches: string[]
+  replacement: string
 }
 
 export interface GuardrailCheckResult {
   passed: boolean
   blocked: boolean
-  violations: Array<{ rule: string; message: string }>
-  redactions: Array<{ rule: string; original: string; redacted: string }>
+  violations: RuleViolation[]
+  redactions: RedactionInfo[]
 }
 
-// ============================================================================
+// =============================================================================
 // Webhooks
-// ============================================================================
+// =============================================================================
+
+export type DeliveryStatus = "pending" | "success" | "failed"
 
 export interface WebhookConfig {
   id: string
   tenant_id: string
   url: string
-  secret?: string // Only on create response
   events: string[]
   enabled: boolean
   created_at: string
@@ -423,46 +534,60 @@ export interface UpdateWebhookRequest {
   enabled?: boolean
 }
 
+export interface CreateWebhookResponse {
+  id: string
+  tenant_id: string
+  url: string
+  secret: string
+  events: string[]
+  enabled: boolean
+  created_at: string
+}
+
+export interface WebhookTestResponse {
+  message: string
+}
+
 export interface WebhookDelivery {
   id: string
   webhook_id: string
   event_type: string
   payload: string
-  status: "pending" | "success" | "failed"
-  status_code?: number
+  status: DeliveryStatus
+  status_code: number | null
   attempts: number
-  last_error?: string
-  next_retry_at?: string
+  last_error: string | null
+  next_retry_at: string | null
   created_at: string
-  completed_at?: string
+  completed_at: string | null
 }
 
-// ============================================================================
-// API Keys
-// ============================================================================
+// =============================================================================
+// IAM: API Keys
+// =============================================================================
 
 export interface ApiKey {
   id: string
   key_prefix: string
   tenant_id: string
-  user_id?: string
+  user_id: string | null
   name: string
-  description?: string
+  description: string
   scopes: string[]
-  allowed_models?: string[]
+  allowed_models: string[]
   is_active: boolean
-  expires_at?: string
-  last_used_at?: string
+  expires_at: string | null
+  last_used_at: string | null
   created_at: string
 }
 
 export interface CreateApiKeyRequest {
   name: string
-  description?: string
+  description: string
   scopes: string[]
-  allowed_models?: string[]
+  allowed_models: string[]
   expires_in?: number
-  environment: "live" | "test"
+  environment: string
   user_id?: string
 }
 
@@ -480,76 +605,45 @@ export interface CreateApiKeyResponse {
   message: string
 }
 
-// ============================================================================
-// Gateway Config
-// ============================================================================
+// =============================================================================
+// IAM: Users
+// =============================================================================
 
-export interface RateLimitConfig {
-  tenant_id: string
-  rpm: number
-  max_concurrent: number
-}
-
-export interface UpsertRateLimitRequest {
-  rpm?: number
-  max_concurrent?: number
-}
-
-export interface RoutingConfig {
-  tenant_id: string
-  strategy: "cheapest" | "lowest-latency" | "round-robin"
-}
-
-export interface UpsertRoutingConfigRequest {
-  strategy: RoutingConfig["strategy"]
-}
-
-export interface CostEstimateRequest {
-  model: string
-  messages: Array<{ role: string; content: string }>
-  max_tokens?: number
-}
-
-export interface CostEstimateResponse {
-  model: string
-  provider: string
-  estimated_input_tokens: number
-  max_output_tokens: number
-  input_price_per_million?: number
-  output_price_per_million?: number
-  estimated_input_cost: number
-  estimated_output_cost: number
-  estimated_total_cost: number
-}
-
-// ============================================================================
-// Users
-// ============================================================================
+export type UserStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING"
 
 export interface User {
   id: string
   tenant_id: string
-  email: string
   name: string
-  picture?: string
-  oauth_provider: string
-  status: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING"
+  email: string
+  picture: string | null
+  is_active: boolean
   scopes: string[]
-  email_verified: boolean
-  last_login_at?: string
+  oauth_provider: string
   created_at: string
-  updated_at: string
 }
 
-// ============================================================================
-// Roles
-// ============================================================================
+export interface CreateUserRequest {
+  email: string
+  name: string
+  scopes: string[]
+}
+
+export interface UpdateUserRequest {
+  name?: string
+  status?: UserStatus
+  scopes?: string[]
+}
+
+// =============================================================================
+// IAM: Roles
+// =============================================================================
 
 export interface Role {
   id: string
   tenant_id: string
   name: string
-  description?: string
+  description: string
   scopes: string[]
   created_at: string
   updated_at: string
@@ -557,7 +651,7 @@ export interface Role {
 
 export interface CreateRoleRequest {
   name: string
-  description?: string
+  description: string
   scopes: string[]
 }
 
@@ -578,88 +672,40 @@ export interface UserRolesResponse {
   effective_scopes: string[]
 }
 
-// ============================================================================
-// Tenants
-// ============================================================================
+// =============================================================================
+// IAM: Invitations
+// =============================================================================
 
-export interface Tenant {
-  id: string
-  company_name: string
-  status: "ACTIVE" | "SUSPENDED" | "CANCELED"
-  max_users: number
-  current_users: number
-  created_at: string
-  updated_at: string
-}
-
-export interface TenantResponse {
-  tenant: Tenant
-  config: Record<string, string>
-}
-
-export interface CreateTenantRequest {
-  company_name: string
-}
-
-export interface UpdateTenantRequest {
-  company_name?: string
-  status?: Tenant["status"]
-}
-
-export interface TenantStats {
-  tenant_id: string
-  total_users: number
-  active_users: number
-  max_users: number
-  user_utilization: number
-}
-
-export interface TenantUsage {
-  tenant_id: string
-  current_users: number
-  max_users: number
-  usage_percentage: number
-  can_add_users: boolean
-  remaining_users: number
-}
-
-export interface TenantConfig {
-  tenant_id: string
-  config: Record<string, string>
-}
-
-// ============================================================================
-// Invitations
-// ============================================================================
+export type InvitationStatus = "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED"
 
 export interface Invitation {
   id: string
   tenant_id: string
   email: string
-  status: "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED"
+  status: InvitationStatus
   scopes: string[]
-  role_id?: string
+  role_id: string | null
   expires_at: string
-  accepted_at?: string
+  accepted_at: string | null
   created_at: string
 }
 
 export interface CreateInvitationRequest {
   email: string
-  scopes?: string[]
+  scopes: string[]
   role_id?: string
   expires_in?: number
 }
 
 export interface ValidateInvitationResponse {
   valid: boolean
-  invitation?: Invitation
-  message?: string
+  invitation: Invitation
+  message: string
 }
 
-// ============================================================================
-// Scopes
-// ============================================================================
+// =============================================================================
+// IAM: Scopes (catalog only, no management port)
+// =============================================================================
 
 export interface ScopeDetail {
   name: string
@@ -667,23 +713,6 @@ export interface ScopeDetail {
   category: string
 }
 
-export interface UserScopesResponse {
-  user_id: string
-  scopes: string[]
-  scope_details: ScopeDetail[]
-  total_scopes: number
-}
-
-export interface AvailableScopesResponse {
-  total_scopes: number
-  categories: Record<string, ScopeDetail[]>
-}
-
-// ============================================================================
-// Paginated response wrapper
-// ============================================================================
-
-export interface Paginated<T> {
-  data: T[]
-  total: number
-}
+// =============================================================================
+// Shared (bottom)
+// =============================================================================

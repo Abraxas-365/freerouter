@@ -19,11 +19,9 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/iam/otp/otpinfra"
 	"github.com/Abraxas-365/freerouter/internal/iam/otp/otpsrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/role/roleapi"
-	"github.com/Abraxas-365/freerouter/internal/iam/tenant/tenantapi"
 	"github.com/Abraxas-365/freerouter/internal/iam/role/roleinfra"
 	"github.com/Abraxas-365/freerouter/internal/iam/role/rolesrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/tenant/tenantinfra"
-	"github.com/Abraxas-365/freerouter/internal/iam/tenant/tenantsrv"
 	"github.com/Abraxas-365/freerouter/internal/iam/user/userapi"
 	"github.com/Abraxas-365/freerouter/internal/iam/user/userinfra"
 	"github.com/Abraxas-365/freerouter/internal/iam/user/usersrv"
@@ -60,7 +58,6 @@ type Deps struct {
 type Container struct {
 	// Services — available for cross-module consumption via interfaces
 	UserService       *usersrv.UserService
-	TenantService     *tenantsrv.TenantService
 	InvitationService *invitationsrv.InvitationService
 	APIKeyService     *apikeysrv.APIKeyService
 	OTPService        *otpsrv.OTPService
@@ -75,9 +72,7 @@ type Container struct {
 	APIKeyHandlers     *apikeyapi.APIKeyHandlers
 	InvitationHandlers *invitationapi.InvitationHandlers
 	RoleHandlers       *roleapi.RoleHandlers
-	ScopeHandlers      *userapi.ScopeHandlers
 	UserHandlers       *userapi.UserHandlers
-	TenantHandlers     *tenantapi.TenantHandlers
 
 	// Middleware — needed by cmd/ to protect route groups
 	UnifiedAuthMiddleware *auth.UnifiedAuthMiddleware
@@ -99,7 +94,6 @@ func New(deps Deps) *Container {
 	// ── Repositories ─────────────────────────────────────────────────────
 
 	tenantRepo := tenantinfra.NewPostgresTenantRepository(deps.DB)
-	tenantConfigRepo := tenantinfra.NewPostgresTenantConfigRepository(deps.DB)
 	userRepo := userinfra.NewPostgresUserRepository(deps.DB)
 	tokenRepo := authinfra.NewPostgresTokenRepository(deps.DB)
 	sessionRepo := authinfra.NewPostgresSessionRepository(deps.DB)
@@ -130,12 +124,6 @@ func New(deps Deps) *Container {
 	)
 
 	// ── Domain services ──────────────────────────────────────────────────
-
-	c.TenantService = tenantsrv.NewTenantService(
-		tenantRepo,
-		tenantConfigRepo,
-		userRepo,
-	)
 
 	c.UserService = usersrv.NewUserService(
 		userRepo,
@@ -232,9 +220,7 @@ func New(deps Deps) *Container {
 	c.APIKeyHandlers = apikeyapi.NewAPIKeyHandlers(c.APIKeyService)
 	c.InvitationHandlers = invitationapi.NewInvitationHandlers(c.InvitationService)
 	c.RoleHandlers = roleapi.NewRoleHandlers(c.RoleService)
-	c.ScopeHandlers = userapi.NewScopeHandlers(c.UserService)
 	c.UserHandlers = userapi.NewUserHandlers(c.UserService)
-	c.TenantHandlers = tenantapi.NewTenantHandlers(c.TenantService)
 
 	// ── Middleware ────────────────────────────────────────────────────────
 

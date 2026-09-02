@@ -18,7 +18,6 @@ const (
 	ScopeUsersRead   = "users:read"
 	ScopeUsersWrite  = "users:write"
 	ScopeUsersDelete = "users:delete"
-	ScopeUsersInvite = "users:invite"
 
 	// Role management scopes
 	ScopeRolesAll    = "roles:*"
@@ -32,13 +31,6 @@ const (
 	ScopeScopesRead   = "scopes:read"
 	ScopeScopesWrite  = "scopes:write"
 	ScopeScopesAssign = "scopes:assign"
-
-	// Tenant management scopes
-	ScopeTenantsAll    = "tenants:*"
-	ScopeTenantsRead   = "tenants:read"
-	ScopeTenantsWrite  = "tenants:write"
-	ScopeTenantsDelete = "tenants:delete"
-	ScopeTenantsConfig = "tenants:config"
 
 	// API Key scopes
 	ScopeAPIKeysAll    = "api_keys:*"
@@ -103,7 +95,6 @@ var CommonScopeCategories = map[string][]string{
 		ScopeUsersRead,
 		ScopeUsersWrite,
 		ScopeUsersDelete,
-		ScopeUsersInvite,
 	},
 	"Roles": {
 		ScopeRolesAll,
@@ -117,13 +108,6 @@ var CommonScopeCategories = map[string][]string{
 		ScopeScopesRead,
 		ScopeScopesWrite,
 		ScopeScopesAssign,
-	},
-	"Tenants": {
-		ScopeTenantsAll,
-		ScopeTenantsRead,
-		ScopeTenantsWrite,
-		ScopeTenantsDelete,
-		ScopeTenantsConfig,
 	},
 	"API Keys": {
 		ScopeAPIKeysAll,
@@ -191,7 +175,6 @@ var CommonScopeDescriptions = map[string]string{
 	ScopeUsersRead:   "View users",
 	ScopeUsersWrite:  "Create and edit users",
 	ScopeUsersDelete: "Delete users",
-	ScopeUsersInvite: "Invite new users",
 
 	// Roles
 	ScopeRolesAll:    "Full access to role management",
@@ -205,13 +188,6 @@ var CommonScopeDescriptions = map[string]string{
 	ScopeScopesRead:   "View available scopes and user scopes",
 	ScopeScopesWrite:  "Set and modify user scopes",
 	ScopeScopesAssign: "Add or remove scopes from users",
-
-	// Tenants
-	ScopeTenantsAll:    "Full access to tenant management",
-	ScopeTenantsRead:   "View tenants",
-	ScopeTenantsWrite:  "Create and edit tenants",
-	ScopeTenantsDelete: "Delete tenants",
-	ScopeTenantsConfig: "Manage tenant configuration",
 
 	// API Keys
 	ScopeAPIKeysAll:    "Full access to API key management",
@@ -262,5 +238,3 @@ var CommonScopeDescriptions = map[string]string{
 	ScopeTemplatesWrite:  "Create and edit templates",
 	ScopeTemplatesDelete: "Delete templates",
 }
-
-

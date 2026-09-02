@@ -163,14 +163,8 @@ func registerRoutes(app *fiber.App, container *Container) {
 	container.IAM.RoleHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > Role routes registered")
 
-	container.IAM.ScopeHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
-	logx.Info("  > Scope routes registered")
-
 	container.IAM.UserHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > User routes registered")
-
-	container.IAM.TenantHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
-	logx.Info("  > Tenant routes registered")
 
 	// AI Routes
 	container.AI.Provider.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)

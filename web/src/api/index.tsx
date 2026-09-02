@@ -1,15 +1,14 @@
 import { createContext, useContext, type ReactNode } from "react"
 import type { ApiPort } from "./ports"
-import { realApi } from "./real-adapter"
-import { mockApi } from "./mock-adapter"
-
-const ApiContext = createContext<ApiPort | null>(null)
+import { mockApi } from "./mock/adapter"
+import { realApi } from "./real/adapter"
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true"
 
+const ApiContext = createContext<ApiPort | null>(null)
+
 export function ApiProvider({ children, mock }: { children: ReactNode; mock?: boolean }) {
   const api = (mock ?? USE_MOCK) ? mockApi : realApi
-
   return <ApiContext.Provider value={api}>{children}</ApiContext.Provider>
 }
 
