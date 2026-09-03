@@ -43,21 +43,21 @@ import (
 // ============================================================================
 
 type Suite struct {
-	T             *testing.T
-	DB            *sqlx.DB
-	Redis         *redis.Client
-	App           *fiber.App
-	IAM           *iamcontainer.Container
-	AI            *aicontainer.Container
-	Billing       *billingcontainer.Container
-	Webhook       *webhookcontainer.Container
-	Config        *config.Config
-	MockUpstream  *httptest.Server
-	TenantID      kernel.TenantID
-	UserID        kernel.UserID
-	JWTToken      string
-	APIKey        string
-	pgContainer   testcontainers.Container
+	T              *testing.T
+	DB             *sqlx.DB
+	Redis          *redis.Client
+	App            *fiber.App
+	IAM            *iamcontainer.Container
+	AI             *aicontainer.Container
+	Billing        *billingcontainer.Container
+	Webhook        *webhookcontainer.Container
+	Config         *config.Config
+	MockUpstream   *httptest.Server
+	TenantID       kernel.TenantID
+	UserID         kernel.UserID
+	JWTToken       string
+	APIKey         string
+	pgContainer    testcontainers.Container
 	redisContainer testcontainers.Container
 }
 
@@ -336,8 +336,8 @@ func (s *Suite) respondImageGeneration(w http.ResponseWriter) {
 	resp := map[string]any{
 		"created": time.Now().Unix(),
 		"data": []map[string]any{{
-			"url":             "https://example.com/generated-image.png",
-			"revised_prompt":  "A cute cat sitting on a windowsill, detailed digital art",
+			"url":            "https://example.com/generated-image.png",
+			"revised_prompt": "A cute cat sitting on a windowsill, detailed digital art",
 		}},
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -416,6 +416,7 @@ func (s *Suite) seedTestData() {
 
 	// Generate JWT token with all scopes
 	allScopes := []string{
+		"*", // platform admin (required for cache invalidation endpoints)
 		"tenant:read", "tenant:write",
 		"providers:read", "providers:write", "providers:delete",
 		"models:read", "models:write", "models:delete",

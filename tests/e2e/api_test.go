@@ -302,7 +302,7 @@ func TestProviderKeyTestEndpoint(t *testing.T) {
 	t.Run("test key against mock upstream", func(t *testing.T) {
 		// First, find the existing provider key
 		req := s.Request("GET", "/api/v1/provider-keys/by-tenant/"+s.TenantID.String(), nil)
-		resp, body := s.Do(req)
+		_, body := s.Do(req)
 
 		// It might be empty for BYOK (our seeded key is managed, not tenant-owned)
 		// Let's create a BYOK key pointing to the mock upstream
@@ -316,7 +316,7 @@ func TestProviderKeyTestEndpoint(t *testing.T) {
 			"description": "Key for testing the test endpoint",
 		})
 		var created map[string]any
-		resp = s.DoJSON(createReq, &created)
+		resp := s.DoJSON(createReq, &created)
 
 		if resp.StatusCode != http.StatusCreated {
 			t.Fatalf("expected 201, got %d, body: %s", resp.StatusCode, body)
