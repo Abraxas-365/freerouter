@@ -388,14 +388,18 @@ func (r *PostgresMappingRepository) create(ctx context.Context, m provider.Model
 		INSERT INTO model_provider_mappings (
 			id, model_id, provider_id, external_id,
 			input_price, output_price, cached_input_price, request_price, image_input_price,
+			audio_price_per_minute, speech_price_per_1k_chars, rerank_price_per_1k,
 			context_size, max_output,
 			streaming, vision, reasoning, tools, json_output,
+			audio, speech, moderation, rerank,
 			region, stability, status, created_at, updated_at
 		) VALUES (
 			:id, :model_id, :provider_id, :external_id,
 			:input_price, :output_price, :cached_input_price, :request_price, :image_input_price,
+			:audio_price_per_minute, :speech_price_per_1k_chars, :rerank_price_per_1k,
 			:context_size, :max_output,
 			:streaming, :vision, :reasoning, :tools, :json_output,
+			:audio, :speech, :moderation, :rerank,
 			:region, :stability, :status, :created_at, :updated_at
 		)`
 

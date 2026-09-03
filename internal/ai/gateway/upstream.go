@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/errx"
@@ -156,14 +155,15 @@ func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, 
 // generation endpoint. Unlike chat, image requests are proxied directly
 // without translation (OpenAI-compatible format only).
 func (u *Upstream) CallImage(ctx context.Context, route *RouteResult, body []byte) (*ImageResponse, int, error) {
-	url := strings.TrimSuffix(route.BaseURL, "/") + "/images/generations"
+	profile := GetProfile(route.ProviderID.String())
+	url := profile.BuildURL(route.BaseURL, route.ExternalID, EndpointImages, false)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, errx.Wrap(err, "failed to build image request", errx.TypeInternal)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	setAuthHeaders(req, route)
+	profile.SetAuth(req, route.Token)
 
 	resp, err := u.client.Do(req)
 	if err != nil {
@@ -196,14 +196,15 @@ func (u *Upstream) CallImage(ctx context.Context, route *RouteResult, body []byt
 // CallEmbedding makes a non-streaming request to the upstream provider's
 // embeddings endpoint. Proxied directly in OpenAI-compatible format.
 func (u *Upstream) CallEmbedding(ctx context.Context, route *RouteResult, body []byte) (*EmbeddingResponse, int, error) {
-	url := strings.TrimSuffix(route.BaseURL, "/") + "/embeddings"
+	profile := GetProfile(route.ProviderID.String())
+	url := profile.BuildURL(route.BaseURL, route.ExternalID, EndpointEmbeddings, false)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, errx.Wrap(err, "failed to build embedding request", errx.TypeInternal)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	setAuthHeaders(req, route)
+	profile.SetAuth(req, route.Token)
 
 	resp, err := u.client.Do(req)
 	if err != nil {
@@ -234,7 +235,8 @@ func (u *Upstream) CallEmbedding(ctx context.Context, route *RouteResult, body [
 }
 
 func (u *Upstream) buildRequest(ctx context.Context, route *RouteResult, body []byte, stream bool) (*http.Request, error) {
-	url := buildUpstreamURL(route, stream)
+	profile := GetProfile(route.ProviderID.String())
+	url := profile.BuildURL(route.BaseURL, route.ExternalID, EndpointChat, stream)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -242,39 +244,142 @@ func (u *Upstream) buildRequest(ctx context.Context, route *RouteResult, body []
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	setAuthHeaders(req, route)
+	profile.SetAuth(req, route.Token)
 
 	return req, nil
 }
 
-// buildUpstreamURL constructs the full upstream endpoint URL
-func buildUpstreamURL(route *RouteResult, stream bool) string {
-	base := strings.TrimSuffix(route.BaseURL, "/")
+// CallTranscription forwards a multipart transcription request (STT).
+// The multipart body is streamed as-is with the model field already rewritten.
+func (u *Upstream) CallTranscription(ctx context.Context, route *RouteResult, body []byte, contentType string) ([]byte, int, error) {
+	profile := GetProfile(route.ProviderID.String())
+	url := profile.BuildURL(route.BaseURL, route.ExternalID, EndpointTranscription, false)
 
-	switch route.ProviderID.String() {
-	case "anthropic":
-		return base + "/messages"
-	case "google", "google-ai-studio", "google-vertex":
-		if stream {
-			return base + "/models/" + route.ExternalID + ":streamGenerateContent?alt=sse"
-		}
-		return base + "/models/" + route.ExternalID + ":generateContent"
-	default:
-		// OpenAI-compatible (openai, groq, together, mistral, deepseek, xai, etc.)
-		return base + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, errx.Wrap(err, "failed to build transcription request", errx.TypeInternal)
 	}
+	req.Header.Set("Content-Type", contentType)
+	profile.SetAuth(req, route.Token)
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return nil, 0, errx.Wrap(err, "upstream transcription request failed", errx.TypeInternal).
+			WithDetail("provider", route.ProviderID)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, errx.Wrap(err, "failed to read transcription response", errx.TypeInternal)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode, errx.New(
+			fmt.Sprintf("upstream returned %d: %s", resp.StatusCode, string(respBody)),
+			errx.TypeInternal,
+		).WithDetail("provider", route.ProviderID)
+	}
+
+	return respBody, resp.StatusCode, nil
 }
 
-// setAuthHeaders sets the authentication headers for the upstream request
-func setAuthHeaders(req *http.Request, route *RouteResult) {
-	switch route.ProviderID.String() {
-	case "anthropic":
-		req.Header.Set("x-api-key", route.Token)
-		req.Header.Set("anthropic-version", "2023-06-01")
-	case "google", "google-ai-studio", "google-vertex":
-		req.Header.Set("x-goog-api-key", route.Token)
-	default:
-		// OpenAI-compatible: Bearer token
-		req.Header.Set("Authorization", "Bearer "+route.Token)
+// CallSpeech forwards a TTS request and returns the raw audio bytes and the
+// upstream Content-Type.
+func (u *Upstream) CallSpeech(ctx context.Context, route *RouteResult, body []byte) ([]byte, string, int, error) {
+	profile := GetProfile(route.ProviderID.String())
+	url := profile.BuildURL(route.BaseURL, route.ExternalID, EndpointSpeech, false)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, "", 0, errx.Wrap(err, "failed to build speech request", errx.TypeInternal)
 	}
+	req.Header.Set("Content-Type", "application/json")
+	profile.SetAuth(req, route.Token)
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return nil, "", 0, errx.Wrap(err, "upstream speech request failed", errx.TypeInternal).
+			WithDetail("provider", route.ProviderID)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", resp.StatusCode, errx.Wrap(err, "failed to read speech response", errx.TypeInternal)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", resp.StatusCode, errx.New(
+			fmt.Sprintf("upstream returned %d: %s", resp.StatusCode, string(respBody)),
+			errx.TypeInternal,
+		).WithDetail("provider", route.ProviderID)
+	}
+
+	return respBody, resp.Header.Get("Content-Type"), resp.StatusCode, nil
+}
+
+// CallModeration forwards a moderation request (OpenAI-compatible).
+func (u *Upstream) CallModeration(ctx context.Context, route *RouteResult, body []byte) (*ModerationResponse, int, error) {
+	profile := GetProfile(route.ProviderID.String())
+	url := profile.BuildURL(route.BaseURL, route.ExternalID, EndpointModeration, false)
+
+	respBody, status, err := u.postJSON(ctx, profile, route, url, body, "moderation")
+	if err != nil {
+		return nil, status, err
+	}
+
+	var modResp ModerationResponse
+	if err := json.Unmarshal(respBody, &modResp); err != nil {
+		return nil, status, errx.Wrap(err, "failed to parse moderation response", errx.TypeInternal)
+	}
+	return &modResp, status, nil
+}
+
+// CallRerank forwards a rerank request (Cohere v2-compatible).
+func (u *Upstream) CallRerank(ctx context.Context, route *RouteResult, body []byte) (*RerankResponse, int, error) {
+	profile := GetProfile(route.ProviderID.String())
+	url := profile.BuildURL(route.BaseURL, route.ExternalID, EndpointRerank, false)
+
+	respBody, status, err := u.postJSON(ctx, profile, route, url, body, "rerank")
+	if err != nil {
+		return nil, status, err
+	}
+
+	var rrResp RerankResponse
+	if err := json.Unmarshal(respBody, &rrResp); err != nil {
+		return nil, status, errx.Wrap(err, "failed to parse rerank response", errx.TypeInternal)
+	}
+	return &rrResp, status, nil
+}
+
+// postJSON performs a JSON POST to the upstream and returns the raw body.
+func (u *Upstream) postJSON(ctx context.Context, profile ProviderProfile, route *RouteResult, url string, body []byte, kind string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, errx.Wrap(err, "failed to build "+kind+" request", errx.TypeInternal)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	profile.SetAuth(req, route.Token)
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return nil, 0, errx.Wrap(err, "upstream "+kind+" request failed", errx.TypeInternal).
+			WithDetail("provider", route.ProviderID)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, errx.Wrap(err, "failed to read "+kind+" response", errx.TypeInternal)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode, errx.New(
+			fmt.Sprintf("upstream returned %d: %s", resp.StatusCode, string(respBody)),
+			errx.TypeInternal,
+		).WithDetail("provider", route.ProviderID)
+	}
+
+	return respBody, resp.StatusCode, nil
 }

@@ -22,12 +22,5 @@ type ProviderTranslator interface {
 // OpenAI-compatible providers (openai, groq, together, mistral, deepseek, xai,
 // fireworks, etc.) use the passthrough translator.
 func GetTranslator(providerID string) ProviderTranslator {
-	switch providerID {
-	case "anthropic":
-		return &AnthropicTranslator{}
-	case "google", "google-ai-studio", "google-vertex":
-		return &GoogleTranslator{}
-	default:
-		return &OpenAITranslator{}
-	}
+	return GetProfile(providerID).Translator
 }

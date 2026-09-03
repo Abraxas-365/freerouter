@@ -183,14 +183,17 @@ func (r *Router) Resolve(ctx context.Context, modelID string, tenantID *kernel.T
 		}
 
 		return &RouteResult{
-			ProviderID:  prov.ID,
-			ExternalID:  mapping.ExternalID,
-			MappingID:   mapping.ID,
-			Token:       token,
-			BaseURL:     baseURL,
-			KeyID:       key.ID,
-			InputPrice:  mapping.InputPrice,
-			OutputPrice: mapping.OutputPrice,
+			ProviderID:            prov.ID,
+			ExternalID:            mapping.ExternalID,
+			MappingID:             mapping.ID,
+			Token:                 token,
+			BaseURL:               baseURL,
+			KeyID:                 key.ID,
+			InputPrice:            mapping.InputPrice,
+			OutputPrice:           mapping.OutputPrice,
+			AudioPricePerMinute:   mapping.AudioPricePerMinute,
+			SpeechPricePer1kChars: mapping.SpeechPricePer1kChars,
+			RerankPricePer1k:      mapping.RerankPricePer1k,
 		}, nil
 	}
 
@@ -362,16 +365,19 @@ func (r *Router) buildRoutesForMappings(ctx context.Context, mappings []*provide
 			}
 
 			routes = append(routes, &RouteResult{
-				ProviderID:      prov.ID,
-				ExternalID:      mapping.ExternalID,
-				MappingID:       mapping.ID,
-				Token:           token,
-				BaseURL:         baseURL,
-				KeyID:           key.ID,
-				InputPrice:      mapping.InputPrice,
-				OutputPrice:     mapping.OutputPrice,
-				IsFallback:      isFallback,
-				FallbackModelID: fallbackModelID,
+				ProviderID:            prov.ID,
+				ExternalID:            mapping.ExternalID,
+				MappingID:             mapping.ID,
+				Token:                 token,
+				BaseURL:               baseURL,
+				KeyID:                 key.ID,
+				InputPrice:            mapping.InputPrice,
+				OutputPrice:           mapping.OutputPrice,
+				AudioPricePerMinute:   mapping.AudioPricePerMinute,
+				SpeechPricePer1kChars: mapping.SpeechPricePer1kChars,
+				RerankPricePer1k:      mapping.RerankPricePer1k,
+				IsFallback:            isFallback,
+				FallbackModelID:       fallbackModelID,
 			})
 		}
 	}
@@ -542,24 +548,5 @@ func cheapestOutputPrice(mappings []*provider.ModelProviderMapping) float64 {
 
 // defaultBaseURL returns the default API base URL for known providers.
 func defaultBaseURL(providerID string) string {
-	switch providerID {
-	case "openai":
-		return "https://api.openai.com/v1"
-	case "anthropic":
-		return "https://api.anthropic.com/v1"
-	case "google":
-		return "https://generativelanguage.googleapis.com/v1beta"
-	case "mistral":
-		return "https://api.mistral.ai/v1"
-	case "groq":
-		return "https://api.groq.com/openai/v1"
-	case "together":
-		return "https://api.together.xyz/v1"
-	case "deepseek":
-		return "https://api.deepseek.com/v1"
-	case "xai":
-		return "https://api.x.ai/v1"
-	default:
-		return ""
-	}
+	return GetProfile(providerID).DefaultBaseURL
 }
