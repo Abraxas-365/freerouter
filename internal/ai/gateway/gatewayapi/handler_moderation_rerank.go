@@ -41,7 +41,7 @@ func (h *GatewayHandlers) Moderations(c *fiber.Ctx) error {
 	}
 	defer h.rateLimiter.Release(c.Context(), tenantID.String())
 
-	route, err := h.router.Resolve(c.Context(), requestedModel, &tenantID, nil)
+	route, err := h.router.ResolveWithCapability(c.Context(), requestedModel, &tenantID, nil, gateway.CapabilityModeration)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (h *GatewayHandlers) Rerank(c *fiber.Ctx) error {
 	}
 	defer h.rateLimiter.Release(c.Context(), tenantID.String())
 
-	route, err := h.router.Resolve(c.Context(), requestedModel, &tenantID, nil)
+	route, err := h.router.ResolveWithCapability(c.Context(), requestedModel, &tenantID, nil, gateway.CapabilityRerank)
 	if err != nil {
 		return err
 	}

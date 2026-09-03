@@ -57,7 +57,7 @@ func (h *GatewayHandlers) Transcription(c *fiber.Ctx) error {
 	defer h.rateLimiter.Release(c.Context(), tenantID.String())
 
 	// Resolve route
-	route, err := h.router.Resolve(c.Context(), requestedModel, &tenantID, nil)
+	route, err := h.router.ResolveWithCapability(c.Context(), requestedModel, &tenantID, nil, gateway.CapabilityAudio)
 	if err != nil {
 		return err
 	}
