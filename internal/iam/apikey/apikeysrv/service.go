@@ -92,6 +92,10 @@ func (s *APIKeyService) CreateAPIKey(
 		return nil, err
 	}
 
+	if err := s.validateWallet(ctx, tenantID, req.WalletID); err != nil {
+		return nil, err
+	}
+
 	var prefix string
 	if req.Environment == "live" {
 		prefix = apikey.KeyPrefixLive
@@ -280,7 +284,8 @@ func (s *APIKeyService) ValidateAPIKey(
 		return nil, apikey.ErrAPIKeyRevoked()
 	}
 
-	go s.apiKeyRepo.UpdateLastUsed(context.Background(), key.ID)
+	// Best-effort, fire-and-forget: last-used tracking must not block auth.
+	go func() { _ = s.apiKeyRepo.UpdateLastUsed(context.Background(), key.ID) }()
 
 	return key, nil
 }

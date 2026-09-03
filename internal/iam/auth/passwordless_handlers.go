@@ -18,6 +18,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/iam/tenant"
 	"github.com/Abraxas-365/freerouter/internal/iam/user"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
+	"github.com/Abraxas-365/freerouter/internal/logx"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -80,7 +81,9 @@ func (h *PasswordlessAuthHandlers) assignInvitationRole(ctx context.Context, use
 		TenantID:   tenantID,
 		AssignedAt: time.Now().UTC(),
 	}
-	h.roleRepo.AssignToUser(ctx, userRole)
+	if err := h.roleRepo.AssignToUser(ctx, userRole); err != nil {
+		logx.Errorf("failed to assign invitation role %s to user %s: %v", *roleID, userID, err)
+	}
 }
 
 // RegisterRoutes registers passwordless auth routes
@@ -309,7 +312,9 @@ func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 
 			// Mark invitation as accepted
 			if err := inv.Accept(existingUser.ID); err == nil {
-				h.invitationRepo.Save(c.Context(), *inv)
+				if saveErr := h.invitationRepo.Save(c.Context(), *inv); saveErr != nil {
+					logx.Errorf("passwordless: failed to save accepted invitation %s: %v", inv.ID, saveErr)
+				}
 			}
 
 			// Audit: OTP linked to existing OAuth account
@@ -375,7 +380,9 @@ func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 
 	// 9. Update tenant user count
 	if err := tenantEntity.AddUser(); err == nil {
-		h.tenantRepo.Save(c.Context(), *tenantEntity)
+		if saveErr := h.tenantRepo.Save(c.Context(), *tenantEntity); saveErr != nil {
+			logx.Errorf("passwordless signup: failed to save tenant %s user count: %v", tenantEntity.ID, saveErr)
+		}
 	}
 
 	// Audit: account created via OTP
@@ -386,7 +393,9 @@ func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 
 	// 10. Mark invitation as accepted
 	if err := inv.Accept(newUser.ID); err == nil {
-		h.invitationRepo.Save(c.Context(), *inv)
+		if saveErr := h.invitationRepo.Save(c.Context(), *inv); saveErr != nil {
+			logx.Errorf("passwordless signup: failed to save accepted invitation %s: %v", inv.ID, saveErr)
+		}
 	}
 
 	// 11. Generate and send OTP
@@ -656,7 +665,9 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 	// 5. Ensure email is verified
 	if !userEntity.EmailVerified {
 		userEntity.EmailVerified = true
-		h.userRepo.Save(c.Context(), *userEntity)
+		if err := h.userRepo.Save(c.Context(), *userEntity); err != nil {
+			logx.Errorf("passwordless login: failed to mark email verified for user %s: %v", userEntity.ID, err)
+		}
 	}
 
 	// 6. Generate JWT tokens with role-resolved scopes
@@ -691,7 +702,9 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 		CreatedAt: time.Now(),
 		IsRevoked: false,
 	}
-	h.tokenRepo.SaveRefreshToken(c.Context(), refreshToken)
+	if err := h.tokenRepo.SaveRefreshToken(c.Context(), refreshToken); err != nil {
+		logx.Errorf("passwordless login: failed to save refresh token for user %s: %v", userEntity.ID, err)
+	}
 
 	// 8. Create session
 	session := UserSession{
@@ -705,11 +718,15 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 		CreatedAt:    time.Now(),
 		LastActivity: time.Now(),
 	}
-	h.sessionRepo.SaveSession(c.Context(), session)
+	if err := h.sessionRepo.SaveSession(c.Context(), session); err != nil {
+		logx.Errorf("passwordless login: failed to save session for user %s: %v", userEntity.ID, err)
+	}
 
 	// 9. Update last login
 	userEntity.UpdateLastLogin()
-	h.userRepo.Save(c.Context(), *userEntity)
+	if err := h.userRepo.Save(c.Context(), *userEntity); err != nil {
+		logx.Errorf("passwordless login: failed to update last login for user %s: %v", userEntity.ID, err)
+	}
 
 	// 10. Set cookies
 	c.Cookie(&fiber.Cookie{

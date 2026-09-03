@@ -14,6 +14,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/iam/tenant"
 	"github.com/Abraxas-365/freerouter/internal/iam/user"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
+	"github.com/Abraxas-365/freerouter/internal/logx"
 	"github.com/Abraxas-365/freerouter/internal/ptrx"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -286,13 +287,13 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 	}
 
 	if err := ah.sessionRepo.SaveSession(c.Context(), session); err != nil {
-		// Log error but don't fail authentication
+		logx.Errorf("oauth login: failed to save session for user %s: %v", userEntity.ID, err)
 	}
 
 	// Update user's last login
 	userEntity.UpdateLastLogin()
 	if err := ah.userRepo.Save(c.Context(), *userEntity); err != nil {
-		// Log error but don't fail
+		logx.Errorf("oauth login: failed to update last login for user %s: %v", userEntity.ID, err)
 	}
 
 	// Audit: successful OAuth login
@@ -468,12 +469,12 @@ func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 
 	// Revoke all refresh tokens
 	if err := ah.tokenRepo.RevokeAllUserTokens(c.Context(), *authContext.UserID); err != nil {
-		// Log error but don't fail
+		logx.Errorf("logout: failed to revoke refresh tokens for user %s: %v", *authContext.UserID, err)
 	}
 
 	// Revoke all sessions
 	if err := ah.sessionRepo.RevokeAllUserSessions(c.Context(), *authContext.UserID); err != nil {
-		// Log error but don't fail
+		logx.Errorf("logout: failed to revoke sessions for user %s: %v", *authContext.UserID, err)
 	}
 
 	// Audit: logout
@@ -646,7 +647,9 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 			inv, err := ah.invitationRepo.FindByToken(ctx, invitationToken)
 			if err == nil {
 				if err := inv.Accept(existingUser.ID); err == nil {
-					ah.invitationRepo.Save(ctx, *inv)
+					if saveErr := ah.invitationRepo.Save(ctx, *inv); saveErr != nil {
+						logx.Errorf("oauth: failed to save accepted invitation %s: %v", inv.ID, saveErr)
+					}
 				}
 			}
 		}
@@ -691,13 +694,15 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 
 	// Increment tenant user count
 	if err := tenantEntity.AddUser(); err != nil {
-		ah.userRepo.Delete(ctx, newUser.ID, tenantEntity.ID)
+		if delErr := ah.userRepo.Delete(ctx, newUser.ID, tenantEntity.ID); delErr != nil {
+			logx.Errorf("signup rollback: failed to delete user %s: %v", newUser.ID, delErr)
+		}
 		return nil, nil, err
 	}
 
 	// Save updated tenant
 	if err := ah.tenantRepo.Save(ctx, *tenantEntity); err != nil {
-		// Log error but don't fail
+		logx.Errorf("signup: failed to save tenant %s user count: %v", tenantEntity.ID, err)
 	}
 
 	// Audit: account created
@@ -711,7 +716,9 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 		inv, err := ah.invitationRepo.FindByToken(ctx, invitationToken)
 		if err == nil {
 			if err := inv.Accept(newUser.ID); err == nil {
-				ah.invitationRepo.Save(ctx, *inv)
+				if saveErr := ah.invitationRepo.Save(ctx, *inv); saveErr != nil {
+					logx.Errorf("oauth: failed to save accepted invitation %s: %v", inv.ID, saveErr)
+				}
 			}
 		}
 	}
@@ -734,7 +741,9 @@ func (ah *AuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.
 		TenantID:   tenantID,
 		AssignedAt: time.Now().UTC(),
 	}
-	ah.roleRepo.AssignToUser(ctx, userRole)
+	if err := ah.roleRepo.AssignToUser(ctx, userRole); err != nil {
+		logx.Errorf("failed to assign invitation role %s to user %s: %v", *roleID, userID, err)
+	}
 }
 
 // Helper functions
