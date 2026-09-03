@@ -59,7 +59,7 @@ func (h *InvitationHandlers) CreateInvitation(c *fiber.Ctx) error {
 	}
 
 	// Create invitation
-	inv, err := h.service.CreateInvitation(c.Context(), authContext.TenantID, *authContext.UserID, req)
+	inv, err := h.service.CreateInvitation(c.Context(), authContext.TenantID, *authContext.UserID, authContext.Scopes, req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),

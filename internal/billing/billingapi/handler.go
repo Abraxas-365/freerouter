@@ -13,26 +13,34 @@ import (
 
 type BillingHandlers struct {
 	service *billingsrv.BillingService
+	stripe  *billingsrv.StripeService
 }
 
-func NewBillingHandlers(service *billingsrv.BillingService) *BillingHandlers {
-	return &BillingHandlers{service: service}
+func NewBillingHandlers(service *billingsrv.BillingService, stripe *billingsrv.StripeService) *BillingHandlers {
+	return &BillingHandlers{service: service, stripe: stripe}
 }
 
 func (h *BillingHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	b := router.Group("/billing", authMiddleware.Authenticate())
 
 	b.Get("/balance", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.GetBalance)
-	b.Post("/top-up", authMiddleware.RequireScope(scopes.ScopeBillingWrite), h.TopUp)
+	b.Post("/top-up", authMiddleware.RequireScope(scopes.ScopeBillingAdmin), h.TopUp)
 	b.Post("/adjust", authMiddleware.RequireScope(scopes.ScopeBillingAdmin), h.Adjust)
 	b.Get("/transactions", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.ListTransactions)
+	b.Post("/checkout", authMiddleware.RequireScope(scopes.ScopeBillingWrite), h.CreateCheckout)
 
 	// Spending limits
 	sl := router.Group("/spending-limits", authMiddleware.Authenticate())
-	sl.Get("/:tenantId", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.GetSpendingLimit)
-	sl.Put("/:tenantId", authMiddleware.RequireScope(scopes.ScopeBillingWrite), h.UpsertSpendingLimit)
-	sl.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeBillingWrite), h.DeleteSpendingLimit)
-	sl.Get("/:tenantId/check", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.CheckSpendingLimit)
+	sl.Get("/:tenantId", authMiddleware.RequireScope(scopes.ScopeBillingRead), auth.ValidateTenantAccess(), h.GetSpendingLimit)
+	sl.Put("/:tenantId", authMiddleware.RequireScope(scopes.ScopeBillingWrite), auth.ValidateTenantAccess(), h.UpsertSpendingLimit)
+	sl.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeBillingWrite), auth.ValidateTenantAccess(), h.DeleteSpendingLimit)
+	sl.Get("/:tenantId/check", authMiddleware.RequireScope(scopes.ScopeBillingRead), auth.ValidateTenantAccess(), h.CheckSpendingLimit)
+}
+
+// RegisterPublicRoutes mounts routes that must NOT go through auth middleware
+// (Stripe signs its webhook requests; signature is verified in the service).
+func (h *BillingHandlers) RegisterPublicRoutes(app fiber.Router) {
+	app.Post("/webhooks/stripe", h.StripeWebhook)
 }
 
 func (h *BillingHandlers) GetBalance(c *fiber.Ctx) error {
@@ -123,6 +131,40 @@ func (h *BillingHandlers) ListTransactions(c *fiber.Ctx) error {
 		return err
 	}
 	return c.JSON(response)
+}
+
+// ============================================================================
+// Stripe checkout handlers
+// ============================================================================
+
+func (h *BillingHandlers) CreateCheckout(c *fiber.Ctx) error {
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+
+	req, err := kernel.BindAndValidate[billing.CreateCheckoutRequest](c)
+	if err != nil {
+		return err
+	}
+
+	resp, err := h.stripe.CreateCheckoutSession(c.Context(), authCtx.TenantID, authCtx.Email, req)
+	if err != nil {
+		return err
+	}
+	return c.JSON(resp)
+}
+
+func (h *BillingHandlers) StripeWebhook(c *fiber.Ctx) error {
+	signature := c.Get("Stripe-Signature")
+	if signature == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "missing Stripe-Signature header")
+	}
+
+	if err := h.stripe.HandleWebhook(c.Context(), c.Body(), signature); err != nil {
+		return err
+	}
+	return c.JSON(fiber.Map{"received": true})
 }
 
 // ============================================================================

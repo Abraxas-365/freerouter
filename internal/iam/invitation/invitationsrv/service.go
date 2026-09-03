@@ -45,8 +45,10 @@ func NewInvitationService(
 	}
 }
 
-// CreateInvitation creates a new invitation
-func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kernel.TenantID, invitedBy kernel.UserID, req invitation.CreateInvitationRequest) (*invitation.Invitation, error) {
+// CreateInvitation creates a new invitation.
+// inviterScopes are the scopes held by the inviting caller; the invitation's
+// resolved scopes (direct or via role) must be a subset to prevent privilege escalation.
+func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kernel.TenantID, invitedBy kernel.UserID, inviterScopes []string, req invitation.CreateInvitationRequest) (*invitation.Invitation, error) {
 	// Check that the tenant exists
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -98,6 +100,13 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 	// Validate scopes
 	if err := s.validateScopes(resolvedScopes); err != nil {
 		return nil, err
+	}
+
+	// Prevent privilege escalation: the inviter can only grant scopes they hold
+	for _, sc := range resolvedScopes {
+		if !kernel.ScopesContain(inviterScopes, sc) {
+			return nil, errx.Unauthorized("cannot invite with scopes you do not hold").WithDetail("scope", sc)
+		}
 	}
 
 	// Generate unique token using configuration

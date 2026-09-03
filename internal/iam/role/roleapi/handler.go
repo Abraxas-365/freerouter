@@ -46,6 +46,11 @@ func (h *RoleHandlers) CreateRole(c *fiber.Ctx) error {
 		return err
 	}
 
+	// Prevent privilege escalation: only grant scopes the caller holds
+	if err := auth.EnsureCanGrantScopes(authContext, req.Scopes); err != nil {
+		return err
+	}
+
 	r, err := h.service.CreateRole(c.Context(), authContext.TenantID, req)
 	if err != nil {
 		return err
@@ -126,6 +131,16 @@ func (h *RoleHandlers) AssignRole(c *fiber.Ctx) error {
 	roleID := c.Params("id")
 	req, err := kernel.BindAndValidate[role.AssignRoleRequest](c)
 	if err != nil {
+		return err
+	}
+
+	// Prevent privilege escalation: assigning a role grants its scopes,
+	// so the caller must hold every scope the role carries.
+	r, err := h.service.GetRoleByID(c.Context(), roleID, authContext.TenantID)
+	if err != nil {
+		return err
+	}
+	if err := auth.EnsureCanGrantScopes(authContext, r.Scopes); err != nil {
 		return err
 	}
 

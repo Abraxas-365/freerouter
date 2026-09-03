@@ -42,6 +42,11 @@ func (h *UserHandlers) CreateUser(c *fiber.Ctx) error {
 	}
 	req.TenantID = authContext.TenantID
 
+	// Prevent privilege escalation: only grant scopes the caller holds
+	if err := auth.EnsureCanGrantScopes(authContext, req.Scopes); err != nil {
+		return err
+	}
+
 	newUser, err := h.service.CreateUser(c.Context(), req)
 	if err != nil {
 		return err

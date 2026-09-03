@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/Abraxas-365/freerouter/internal/ai/guardrails"
+	"github.com/Abraxas-365/freerouter/internal/errx"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/google/uuid"
 )
@@ -314,10 +315,13 @@ func (s *GuardrailsService) CreateRule(ctx context.Context, tenantID kernel.Tena
 	return s.repo.CreateRule(ctx, rule)
 }
 
-func (s *GuardrailsService) UpdateRule(ctx context.Context, ruleID kernel.GuardrailRuleID, req guardrails.UpdateRuleRequest) (*guardrails.GuardrailRule, error) {
+func (s *GuardrailsService) UpdateRule(ctx context.Context, tenantID kernel.TenantID, ruleID kernel.GuardrailRuleID, req guardrails.UpdateRuleRequest) (*guardrails.GuardrailRule, error) {
 	rule, err := s.repo.GetRule(ctx, ruleID)
 	if err != nil {
 		return nil, err
+	}
+	if rule.TenantID != tenantID {
+		return nil, errx.NotFound("rule not found")
 	}
 
 	if req.Name != nil {
@@ -339,7 +343,14 @@ func (s *GuardrailsService) UpdateRule(ctx context.Context, ruleID kernel.Guardr
 	return s.repo.UpdateRule(ctx, rule)
 }
 
-func (s *GuardrailsService) DeleteRule(ctx context.Context, ruleID kernel.GuardrailRuleID) error {
+func (s *GuardrailsService) DeleteRule(ctx context.Context, tenantID kernel.TenantID, ruleID kernel.GuardrailRuleID) error {
+	rule, err := s.repo.GetRule(ctx, ruleID)
+	if err != nil {
+		return err
+	}
+	if rule.TenantID != tenantID {
+		return errx.NotFound("rule not found")
+	}
 	return s.repo.DeleteRule(ctx, ruleID)
 }
 

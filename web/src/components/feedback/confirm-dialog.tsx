@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 
 export function ConfirmDialog({
   trigger,
+  open,
+  onOpenChange,
   title,
   description,
   confirmLabel = "Confirm",
@@ -13,7 +15,9 @@ export function ConfirmDialog({
   variant = "destructive",
   onConfirm,
 }: {
-  trigger: React.ReactNode
+  trigger?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   title: string
   description: string
   confirmLabel?: string
@@ -22,15 +26,15 @@ export function ConfirmDialog({
   onConfirm: () => void
 }) {
   return (
-    <Dialog>
-      <DialogTrigger>{trigger}</DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {trigger && <DialogTrigger>{trigger}</DialogTrigger>}
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="font-mono">{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline">{cancelLabel}</Button>
+          <Button variant="outline" onClick={() => onOpenChange?.(false)}>{cancelLabel}</Button>
           <Button variant={variant} onClick={onConfirm}>{confirmLabel}</Button>
         </DialogFooter>
       </DialogContent>

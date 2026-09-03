@@ -6,7 +6,7 @@ package scopes
 
 const (
 	// Super scope - full access to everything
-	ScopeAll = "*"
+	PlatformAdmin = "*"
 
 	// Admin scopes
 
@@ -85,7 +85,7 @@ const (
 // CommonScopeCategories organizes common scopes by domain
 var CommonScopeCategories = map[string][]string{
 	"Administration": {
-		ScopeAll,
+		PlatformAdmin,
 
 		ScopeAdminRead,
 		ScopeAdminWrite,
@@ -163,7 +163,7 @@ var CommonScopeCategories = map[string][]string{
 // CommonScopeDescriptions provides human-readable descriptions
 var CommonScopeDescriptions = map[string]string{
 	// Super admin
-	ScopeAll: "Full access to all system resources",
+	PlatformAdmin: "Full access to all system resources",
 
 	// Admin
 

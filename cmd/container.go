@@ -119,7 +119,7 @@ func (c *Container) initModules() {
 		InvitationNotifier: NewConsoleInvitationNotifier(),
 	})
 
-	c.Billing = billingcontainer.New(c.DB)
+	c.Billing = billingcontainer.New(c.DB, c.Config.Stripe)
 
 	c.AI = aicontainer.New(aicontainer.Deps{
 		DB:             c.DB,

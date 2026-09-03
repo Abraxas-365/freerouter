@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom"
 import AppLayout from "./components/layout/app-layout"
+import { Toaster } from "./components/ui/sonner"
 import Dashboard from "./pages/dashboard"
 import ProvidersPage from "./pages/providers"
 import ModelsPage from "./pages/models"
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/api-keys" element={<ApiKeysPage />} />
         </Routes>
       </AppLayout>
+      <Toaster />
     </BrowserRouter>
   )
 }

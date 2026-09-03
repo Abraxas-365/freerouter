@@ -61,7 +61,7 @@ func GetDomainScopes() []string {
 
 // ValidateScope checks if a scope is valid
 func ValidateScope(scope string) bool {
-	if scope == ScopeAll {
+	if scope == PlatformAdmin {
 		return true
 	}
 
@@ -106,7 +106,7 @@ func GetScopeCategory(scope string) string {
 // ExpandWildcardScope expands a wildcard scope to all matching scopes
 // e.g., "jobs:*" -> ["jobs:read", "jobs:write", "jobs:delete", ...]
 func ExpandWildcardScope(wildcardScope string) []string {
-	if wildcardScope == ScopeAll {
+	if wildcardScope == PlatformAdmin {
 		return GetAllScopes()
 	}
 

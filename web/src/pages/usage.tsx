@@ -19,7 +19,6 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
@@ -190,7 +189,7 @@ export default function UsagePage() {
               onChange={(e) => setProviderFilter(e.target.value)}
               className="h-8 w-[160px]"
             />
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
               <SelectTrigger className="h-8 w-[120px]">
                 <SelectValue />
               </SelectTrigger>
@@ -340,12 +339,12 @@ export default function UsagePage() {
               </div>
 
               {/* Messages */}
-              {detailLog.messages && (
+              {detailLog.messages ? (
                 <JsonBlock label="Messages" data={detailLog.messages} />
-              )}
-              {detailLog.response_body && (
+              ) : null}
+              {detailLog.response_body ? (
                 <JsonBlock label="Response Body" data={detailLog.response_body} />
-              )}
+              ) : null}
             </div>
           ) : null}
         </DialogContent>

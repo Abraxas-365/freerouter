@@ -15,6 +15,7 @@ import type {
   CostEstimateRequest, CostEstimateResponse,
   // Billing
   Balance, Transaction, TopUpRequest, AdjustRequest, BillingMutationResponse,
+  CreateCheckoutRequest, CheckoutSession,
   SpendingLimit, UpsertSpendingLimitRequest, SpendingCheck,
   // Usage
   UsageLog, UsageLogDetail, UsageSummaryResponse, UsageQuery,
@@ -127,6 +128,7 @@ export interface BillingPort {
   topUp(req: TopUpRequest): Promise<BillingMutationResponse>
   adjust(req: AdjustRequest): Promise<BillingMutationResponse>
   listTransactions(params?: { type?: string; from?: string; to?: string; limit?: number; offset?: number }): Promise<Paginated<Transaction>>
+  createCheckout(req: CreateCheckoutRequest): Promise<CheckoutSession>
   // Spending limits
   getSpendingLimit(tenantId: string): Promise<SpendingLimit>
   upsertSpendingLimit(tenantId: string, req: UpsertSpendingLimitRequest): Promise<SpendingLimit>

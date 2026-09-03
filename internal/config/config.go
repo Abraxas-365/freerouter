@@ -17,6 +17,7 @@ type Config struct {
 	OAuth        OAuthConfig
 	TenantConfig TenantConfig
 	AI           AIConfig
+	Stripe       StripeConfig
 		Jobx JobxConfig
 		Notifx NotifxConfig
 	// manifesto:config-fields
@@ -62,6 +63,7 @@ func Load() (*Config, error) {
 		OAuth:        loadOAuthConfig(),
 		TenantConfig: loadTenantConfig(),
 		AI:           loadAIConfig(),
+		Stripe:       loadStripeConfig(),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -95,6 +97,15 @@ func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intVal, err := strconv.Atoi(value); err == nil {
 			return intVal
+		}
+	}
+	return defaultValue
+}
+
+func getEnvFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
 		}
 	}
 	return defaultValue

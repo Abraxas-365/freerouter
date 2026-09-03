@@ -89,6 +89,11 @@ func (h *APIKeyHandlers) UpdateAPIKey(c *fiber.Ctx) error {
 		return err
 	}
 
+	// Prevent privilege escalation: only grant scopes the caller holds
+	if err := auth.EnsureCanGrantScopes(authContext, req.Scopes); err != nil {
+		return err
+	}
+
 	key, err := h.service.UpdateAPIKey(c.Context(), keyID, authContext.TenantID, req)
 	if err != nil {
 		return err

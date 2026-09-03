@@ -83,8 +83,8 @@ type GatewayHandlers struct {
 	rateLimiter   *gateway.RateLimiter
 	cache         *gateway.ResponseCache
 	metrics       *gateway.Metrics
-	webhooks      *webhooksrv.WebhookService        // optional, nil = no webhook notifications
-	routingRepo   gateway.RoutingConfigRepository   // optional, nil = no per-tenant strategy
+	webhooks      *webhooksrv.WebhookService      // optional, nil = no webhook notifications
+	routingRepo   gateway.RoutingConfigRepository // optional, nil = no per-tenant strategy
 }
 
 func NewGatewayHandlers(
@@ -153,18 +153,18 @@ func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 // RegisterAdminRoutes registers rate limit config and cache invalidation routes (under /api/v1).
 func (h *GatewayHandlers) RegisterAdminRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	rl := router.Group("/rate-limits", authMiddleware.Authenticate())
-	rl.Get("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsRead), h.GetRateLimitConfig)
-	rl.Put("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsWrite), h.UpsertRateLimitConfig)
-	rl.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsWrite), h.DeleteRateLimitConfig)
+	rl.Get("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsRead), auth.ValidateTenantAccess(), h.GetRateLimitConfig)
+	rl.Put("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsWrite), auth.ValidateTenantAccess(), h.UpsertRateLimitConfig)
+	rl.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsWrite), auth.ValidateTenantAccess(), h.DeleteRateLimitConfig)
 
 	cache := router.Group("/cache", authMiddleware.Authenticate())
-	cache.Delete("/", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.InvalidateCacheAll)
-	cache.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.InvalidateCacheTenant)
+	cache.Delete("/", authMiddleware.RequireScope(scopes.PlatformAdmin), h.InvalidateCacheAll)
+	cache.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayChat), auth.ValidateTenantAccess(), h.InvalidateCacheTenant)
 
 	routing := router.Group("/routing", authMiddleware.Authenticate())
-	routing.Get("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayRead), h.GetRoutingConfig)
-	routing.Put("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayWrite), h.UpsertRoutingConfig)
-	routing.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayWrite), h.DeleteRoutingConfig)
+	routing.Get("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayRead), auth.ValidateTenantAccess(), h.GetRoutingConfig)
+	routing.Put("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayWrite), auth.ValidateTenantAccess(), h.UpsertRoutingConfig)
+	routing.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayWrite), auth.ValidateTenantAccess(), h.DeleteRoutingConfig)
 }
 
 // ListModels returns all active models in OpenAI-compatible format.

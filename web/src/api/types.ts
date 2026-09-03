@@ -302,6 +302,15 @@ export interface BillingMutationResponse {
   transaction: Transaction
 }
 
+export interface CreateCheckoutRequest {
+  amount_usd: number
+}
+
+export interface CheckoutSession {
+  session_id: string
+  url: string
+}
+
 export interface SpendingLimit {
   tenant_id: string
   daily_limit_usd: number | null

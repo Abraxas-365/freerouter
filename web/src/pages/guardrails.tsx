@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import {
   Shield, ShieldCheck, ShieldAlert, ShieldOff,
   Plus, Pencil, Trash2, MoreHorizontal, FlaskConical,
-  Loader2, Save, ChevronRight,
+  Loader2, ChevronRight,
 } from "lucide-react"
 import { useApi } from "@/api"
 import type {
@@ -281,11 +281,13 @@ export default function GuardrailsPage() {
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        }
+                      />
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => { setEditingRule(rule); setRuleDialogOpen(true) }}>
                           <Pencil className="h-4 w-4 mr-2" /> Edit
@@ -384,7 +386,7 @@ export default function GuardrailsPage() {
       {/* Delete Confirm */}
       <ConfirmDialog
         open={!!deleteRuleId}
-        onOpenChange={(v) => { if (!v) setDeleteRuleId(null) }}
+        onOpenChange={(v: boolean) => { if (!v) setDeleteRuleId(null) }}
         title="Delete Rule"
         description="This rule will be permanently deleted. This cannot be undone."
         onConfirm={handleDeleteRule}

@@ -77,8 +77,24 @@ func (h *WebhookHandlers) ListEvents(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"events": webhook.AllEvents()})
 }
 
-func (h *WebhookHandlers) Get(c *fiber.Ctx) error {
+// getOwnedWebhook fetches the webhook and verifies it belongs to the caller's tenant.
+func (h *WebhookHandlers) getOwnedWebhook(c *fiber.Ctx) (*webhook.WebhookConfig, error) {
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return nil, fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
 	w, err := h.service.Get(c.Context(), kernel.NewWebhookID(c.Params("id")))
+	if err != nil {
+		return nil, err
+	}
+	if w.TenantID != authCtx.TenantID && !authCtx.HasScope("*") {
+		return nil, fiber.NewError(fiber.StatusNotFound, "webhook not found")
+	}
+	return w, nil
+}
+
+func (h *WebhookHandlers) Get(c *fiber.Ctx) error {
+	w, err := h.getOwnedWebhook(c)
 	if err != nil {
 		return err
 	}
@@ -86,6 +102,10 @@ func (h *WebhookHandlers) Get(c *fiber.Ctx) error {
 }
 
 func (h *WebhookHandlers) Update(c *fiber.Ctx) error {
+	if _, err := h.getOwnedWebhook(c); err != nil {
+		return err
+	}
+
 	var req webhook.UpdateWebhookRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
@@ -99,6 +119,9 @@ func (h *WebhookHandlers) Update(c *fiber.Ctx) error {
 }
 
 func (h *WebhookHandlers) Delete(c *fiber.Ctx) error {
+	if _, err := h.getOwnedWebhook(c); err != nil {
+		return err
+	}
 	if err := h.service.Delete(c.Context(), kernel.NewWebhookID(c.Params("id"))); err != nil {
 		return err
 	}
@@ -106,6 +129,9 @@ func (h *WebhookHandlers) Delete(c *fiber.Ctx) error {
 }
 
 func (h *WebhookHandlers) ListDeliveries(c *fiber.Ctx) error {
+	if _, err := h.getOwnedWebhook(c); err != nil {
+		return err
+	}
 	limit := c.QueryInt("limit", 50)
 	deliveries, err := h.service.GetDeliveries(c.Context(), kernel.NewWebhookID(c.Params("id")), limit)
 	if err != nil {

@@ -183,11 +183,13 @@ export default function ApiKeysPage() {
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button variant="ghost" size="icon" className="h-7 w-7">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          }
+                        />
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => setEditKey(key)}>
                             <Pencil className="h-4 w-4 mr-2" /> Edit
@@ -235,7 +237,7 @@ export default function ApiKeysPage() {
       {/* Delete Confirm */}
       <ConfirmDialog
         open={!!deleteId}
-        onOpenChange={(v) => { if (!v) setDeleteId(null) }}
+        onOpenChange={(v: boolean) => { if (!v) setDeleteId(null) }}
         title="Delete API Key"
         description="This key will be permanently deleted and any services using it will lose access."
         onConfirm={handleDelete}
@@ -354,7 +356,7 @@ function ApiKeyFormDialog({
           {!apiKey && (
             <div className="space-y-2">
               <Label className="font-mono text-xs">Environment</Label>
-              <Select value={environment} onValueChange={setEnvironment}>
+              <Select value={environment} onValueChange={(v) => v && setEnvironment(v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="live">Live</SelectItem>

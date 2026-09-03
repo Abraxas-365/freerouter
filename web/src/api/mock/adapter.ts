@@ -407,9 +407,9 @@ export const gatewayConfigPort: GatewayConfigPort = {
       max_output_tokens: maxOutputTokens,
       input_price_per_million: inputPrice,
       output_price_per_million: outputPrice,
-      estimated_input_cost: Number(estimatedInputCost.toFixed(6)),
-      estimated_output_cost: Number(estimatedOutputCost.toFixed(6)),
-      estimated_total_cost: Number((estimatedInputCost + estimatedOutputCost).toFixed(6)),
+      estimated_input_cost_usd: Number(estimatedInputCost.toFixed(6)),
+      estimated_output_cost_usd: Number(estimatedOutputCost.toFixed(6)),
+      estimated_total_cost_usd: Number((estimatedInputCost + estimatedOutputCost).toFixed(6)),
     }
   },
 }
@@ -474,6 +474,28 @@ export const billingPort: BillingPort = {
     const offset = params?.offset ?? 0
     const limit = params?.limit ?? total
     return { data: filtered.slice(offset, offset + limit), total }
+  },
+  async createCheckout(req) {
+    await delay()
+    // Mock: simulate an instant successful purchase, then "redirect" back
+    const balance = balances[0]
+    if (!balance) throw new Error("Not found")
+    balance.balance += req.amount_usd
+    balance.updated_at = new Date().toISOString()
+    const txn: Transaction = {
+      id: crypto.randomUUID(),
+      type: "top_up",
+      amount: req.amount_usd,
+      balance_after: balance.balance,
+      description: `Credit purchase of $${req.amount_usd.toFixed(2)} via Stripe`,
+      reference_id: `stripe:cs_mock_${crypto.randomUUID().slice(0, 8)}`,
+      created_at: new Date().toISOString(),
+    }
+    transactions.unshift(txn)
+    return {
+      session_id: txn.reference_id.replace("stripe:", ""),
+      url: "/billing?checkout=success",
+    }
   },
   async getSpendingLimit(tenantId) {
     await delay()
@@ -951,7 +973,7 @@ export const usersPort: UsersPort = {
     await delay()
     const user: User = {
       id: crypto.randomUUID(),
-      tenant_id: req.tenant_id,
+      tenant_id: TENANT,
       name: req.name,
       email: req.email,
       picture: null,

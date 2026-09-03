@@ -106,6 +106,10 @@ func (h *GuardrailHandlers) CreateRule(c *fiber.Ctx) error {
 }
 
 func (h *GuardrailHandlers) UpdateRule(c *fiber.Ctx) error {
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
 	ruleID := kernel.NewGuardrailRuleID(c.Params("ruleId"))
 
 	var req guardrails.UpdateRuleRequest
@@ -113,7 +117,7 @@ func (h *GuardrailHandlers) UpdateRule(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
 
-	rule, err := h.service.UpdateRule(c.Context(), ruleID, req)
+	rule, err := h.service.UpdateRule(c.Context(), authCtx.TenantID, ruleID, req)
 	if err != nil {
 		return err
 	}
@@ -121,8 +125,12 @@ func (h *GuardrailHandlers) UpdateRule(c *fiber.Ctx) error {
 }
 
 func (h *GuardrailHandlers) DeleteRule(c *fiber.Ctx) error {
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
 	ruleID := kernel.NewGuardrailRuleID(c.Params("ruleId"))
-	if err := h.service.DeleteRule(c.Context(), ruleID); err != nil {
+	if err := h.service.DeleteRule(c.Context(), authCtx.TenantID, ruleID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)

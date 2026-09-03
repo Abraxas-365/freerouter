@@ -4,12 +4,12 @@ import {
   Pencil, Trash2, Zap, ZapOff,
 } from "lucide-react"
 import { useApi } from "@/api"
-import type { Provider, CreateProviderRequest } from "@/api/types"
-import { PageHeader, EmptyState, StatusBadge, ConfirmDialog } from "@/components"
+import type { Provider, CreateProviderRequest, UpdateProviderRequest } from "@/api/types"
+import { PageHeader, EmptyState, StatusBadge } from "@/components"
 import { MetricCardSkeleton } from "@/components/feedback/skeletons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
@@ -46,7 +46,7 @@ export default function ProvidersPage() {
     load()
   }
 
-  async function handleUpdate(id: string, req: Partial<CreateProviderRequest> & { status?: string }) {
+  async function handleUpdate(id: string, req: UpdateProviderRequest) {
     await api.providers.update(id, req)
     setEditProvider(null)
     load()

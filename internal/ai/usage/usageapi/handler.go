@@ -25,15 +25,23 @@ func (h *UsageHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth
 	u.Get("/logs/:id", authMiddleware.RequireScope(scopes.ScopeUsageRead), h.GetLog)
 	u.Get("/summary", authMiddleware.RequireScope(scopes.ScopeUsageRead), h.GetSummary)
 
-	u.Get("/retention/:tenantId", authMiddleware.RequireScope(scopes.ScopeUsageRead), h.GetRetentionConfig)
-	u.Put("/retention/:tenantId", authMiddleware.RequireScope(scopes.ScopeUsageWrite), h.UpsertRetentionConfig)
-	u.Delete("/retention/:tenantId", authMiddleware.RequireScope(scopes.ScopeUsageWrite), h.DeleteRetentionConfig)
+	u.Get("/retention/:tenantId", authMiddleware.RequireScope(scopes.ScopeUsageRead), auth.ValidateTenantAccess(), h.GetRetentionConfig)
+	u.Put("/retention/:tenantId", authMiddleware.RequireScope(scopes.ScopeUsageWrite), auth.ValidateTenantAccess(), h.UpsertRetentionConfig)
+	u.Delete("/retention/:tenantId", authMiddleware.RequireScope(scopes.ScopeUsageWrite), auth.ValidateTenantAccess(), h.DeleteRetentionConfig)
 }
 
 func (h *UsageHandlers) GetLog(c *fiber.Ctx) error {
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+
 	log, err := h.service.GetLog(c.Context(), kernel.NewUsageLogID(c.Params("id")))
 	if err != nil {
 		return err
+	}
+	if log.TenantID != authCtx.TenantID && !authCtx.HasScope("*") {
+		return fiber.NewError(fiber.StatusForbidden, "access denied to this log")
 	}
 	return c.JSON(log.ToDetailDTO())
 }

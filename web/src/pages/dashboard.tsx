@@ -195,7 +195,7 @@ export default function Dashboard() {
                       <Badge variant="secondary" className="font-mono text-[10px] px-1.5">stream</Badge>
                     )}
                   </div>
-                  <StatusBadge status={p.status === "active" ? "online" : p.status === "degraded" ? "degraded" : "offline"} />
+                  <StatusBadge status={p.status === "active" ? "online" : "offline"} />
                 </div>
               ))}
               {providers.length > 6 && (
@@ -228,13 +228,13 @@ export default function Dashboard() {
                   <TableRow key={log.id}>
                     <TableCell className="font-mono text-xs">{log.used_model}</TableCell>
                     <TableCell>
-                      {log.status === "success" ? (
+                      {!log.has_error ? (
                         <span className="inline-flex items-center gap-1 text-xs text-success">
                           <ArrowUpRight className="h-3 w-3" /> ok
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-xs text-destructive">
-                          <ArrowDownRight className="h-3 w-3" /> {log.status}
+                          <ArrowDownRight className="h-3 w-3" /> {log.status_code}
                         </span>
                       )}
                     </TableCell>
@@ -309,3 +309,4 @@ function generateDailyUsage(totalRequests: number) {
   }
   return days
 }
+

@@ -26,7 +26,7 @@ func (h *ProviderKeyHandlers) RegisterRoutes(router fiber.Router, authMiddleware
 	keys.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeProviderKeysDelete), h.DeleteKey)
 
 	keys.Get("/by-provider/:providerId", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListByProvider)
-	keys.Get("/by-tenant/:tenantId", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListByTenant)
+	keys.Get("/by-tenant/:tenantId", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), auth.ValidateTenantAccess(), h.ListByTenant)
 	keys.Get("/managed", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListManaged)
 
 	keys.Post("/:id/test", authMiddleware.RequireScope(scopes.ScopeProviderKeysWrite), h.TestKey)
@@ -38,6 +38,15 @@ func (h *ProviderKeyHandlers) CreateKey(c *fiber.Ctx) error {
 		return err
 	}
 
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+	// Non-admin callers can only create keys for their own tenant.
+	if !authCtx.HasScope("*") {
+		req.TenantID = &authCtx.TenantID
+	}
+
 	k, err := h.service.CreateKey(c.Context(), req)
 	if err != nil {
 		return err
@@ -45,9 +54,25 @@ func (h *ProviderKeyHandlers) CreateKey(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(k.ToDTO())
 }
 
+// checkKeyAccess returns a 403 error if the key belongs to a different tenant.
+// Managed keys (nil tenant) are accessible; "*" scope bypasses the check.
+func checkKeyAccess(c *fiber.Ctx, k *providerkey.ProviderKey) error {
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+	if k.TenantID != nil && *k.TenantID != authCtx.TenantID && !authCtx.HasScope("*") {
+		return fiber.NewError(fiber.StatusForbidden, "access denied to this key")
+	}
+	return nil
+}
+
 func (h *ProviderKeyHandlers) GetKey(c *fiber.Ctx) error {
 	k, err := h.service.GetKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
 	if err != nil {
+		return err
+	}
+	if err := checkKeyAccess(c, k); err != nil {
 		return err
 	}
 	return c.JSON(k.ToDTO())
@@ -59,6 +84,14 @@ func (h *ProviderKeyHandlers) UpdateKey(c *fiber.Ctx) error {
 		return err
 	}
 
+	existing, err := h.service.GetKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
+	if err != nil {
+		return err
+	}
+	if err := checkKeyAccess(c, existing); err != nil {
+		return err
+	}
+
 	k, err := h.service.UpdateKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")), req)
 	if err != nil {
 		return err
@@ -67,6 +100,14 @@ func (h *ProviderKeyHandlers) UpdateKey(c *fiber.Ctx) error {
 }
 
 func (h *ProviderKeyHandlers) DeleteKey(c *fiber.Ctx) error {
+	existing, err := h.service.GetKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
+	if err != nil {
+		return err
+	}
+	if err := checkKeyAccess(c, existing); err != nil {
+		return err
+	}
+
 	if err := h.service.DeleteKey(c.Context(), kernel.NewProviderKeyID(c.Params("id"))); err != nil {
 		return err
 	}
@@ -74,9 +115,26 @@ func (h *ProviderKeyHandlers) DeleteKey(c *fiber.Ctx) error {
 }
 
 func (h *ProviderKeyHandlers) ListByProvider(c *fiber.Ctx) error {
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+
 	response, err := h.service.ListByProvider(c.Context(), kernel.NewProviderID(c.Params("providerId")))
 	if err != nil {
 		return err
+	}
+
+	// Non-admin callers only see managed keys and their own tenant's keys.
+	if !authCtx.HasScope("*") {
+		filtered := response.Keys[:0]
+		for _, k := range response.Keys {
+			if k.TenantID == nil || *k.TenantID == authCtx.TenantID {
+				filtered = append(filtered, k)
+			}
+		}
+		response.Keys = filtered
+		response.Total = len(filtered)
 	}
 	return c.JSON(response)
 }
@@ -98,6 +156,14 @@ func (h *ProviderKeyHandlers) ListManaged(c *fiber.Ctx) error {
 }
 
 func (h *ProviderKeyHandlers) TestKey(c *fiber.Ctx) error {
+	existing, err := h.service.GetKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
+	if err != nil {
+		return err
+	}
+	if err := checkKeyAccess(c, existing); err != nil {
+		return err
+	}
+
 	result, err := h.service.TestKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
 	if err != nil {
 		return err

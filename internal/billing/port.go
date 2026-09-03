@@ -22,6 +22,10 @@ type BillingRepository interface {
 
 	// QueryTransactions returns paginated transactions for a tenant
 	QueryTransactions(ctx context.Context, q TransactionQuery) ([]*Transaction, int, error)
+
+	// HasTransactionWithReference reports whether a transaction with the given
+	// reference ID already exists (used for payment idempotency).
+	HasTransactionWithReference(ctx context.Context, referenceID string) (bool, error)
 }
 
 // SpendingLimitRepository defines the contract for spending limit persistence.

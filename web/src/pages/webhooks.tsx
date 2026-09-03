@@ -59,7 +59,6 @@ export default function WebhooksPage() {
   const [newSecret, setNewSecret] = useState<string | null>(null)
 
   // test
-  const [testingId, setTestingId] = useState<string | null>(null)
   const [testMsg, setTestMsg] = useState<string | null>(null)
 
   async function load() {
@@ -96,11 +95,9 @@ export default function WebhooksPage() {
   }
 
   async function handleTest(id: string) {
-    setTestingId(id)
     setTestMsg(null)
     const res = await api.webhooks.test(id)
     setTestMsg(res.message)
-    setTestingId(null)
     setTimeout(() => setTestMsg(null), 3000)
   }
 
@@ -195,11 +192,13 @@ export default function WebhooksPage() {
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        }
+                      />
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => handleTest(wh.id)}>
                           <Send className="h-4 w-4 mr-2" /> Test
@@ -325,7 +324,7 @@ export default function WebhooksPage() {
       {/* Delete Confirm */}
       <ConfirmDialog
         open={!!deleteId}
-        onOpenChange={(v) => { if (!v) setDeleteId(null) }}
+        onOpenChange={(v: boolean) => { if (!v) setDeleteId(null) }}
         title="Delete Webhook"
         description="This webhook and all its delivery history will be permanently deleted."
         onConfirm={handleDelete}

@@ -5,7 +5,7 @@ import {
 } from "lucide-react"
 import { useApi } from "@/api"
 import type {
-  ProviderKey, CreateProviderKeyRequest, Provider, TestKeyResult,
+  ProviderKey, CreateProviderKeyRequest, UpdateProviderKeyRequest, Provider, TestKeyResult,
 } from "@/api/types"
 import { PageHeader, EmptyState, StatusBadge } from "@/components"
 import { MetricCardSkeleton } from "@/components/feedback/skeletons"
@@ -59,7 +59,7 @@ export default function ProviderKeysPage() {
     load()
   }
 
-  async function handleUpdate(id: string, req: { name?: string; description?: string; status?: string; token?: string; base_url?: string }) {
+  async function handleUpdate(id: string, req: UpdateProviderKeyRequest) {
     await api.providerKeys.update(id, req)
     setEditKey(null)
     load()
@@ -338,7 +338,7 @@ function KeyFormDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label className="font-mono text-xs">Provider</Label>
-            <Select value={providerId} onValueChange={setProviderId}>
+            <Select value={providerId} onValueChange={(v) => v && setProviderId(v)}>
               <SelectTrigger><SelectValue placeholder="Select provider" /></SelectTrigger>
               <SelectContent>
                 {providers.map((p) => (
@@ -430,3 +430,4 @@ function KeyEditDialog({
     </Dialog>
   )
 }
+

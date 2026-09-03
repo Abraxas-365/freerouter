@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react"
+import { useSearchParams } from "react-router-dom"
+import { toast } from "sonner"
 import {
   Wallet, ArrowUpCircle, ArrowDownCircle, RefreshCw, Wrench,
   Plus, TrendingDown, TrendingUp, Save, Trash2, Loader2, DollarSign,
@@ -7,7 +9,7 @@ import { useApi } from "@/api"
 import type {
   Balance, Transaction, TransactionType,
   SpendingLimit, SpendingCheck,
-  TopUpRequest, UpsertSpendingLimitRequest,
+  UpsertSpendingLimitRequest,
 } from "@/api/types"
 import { PageHeader, MetricCard } from "@/components"
 import { MetricCardSkeleton } from "@/components/feedback/skeletons"
@@ -77,9 +79,28 @@ export default function BillingPage() {
 
   useEffect(() => { load() }, [api])
 
-  async function handleTopUp(req: TopUpRequest) {
-    const res = await api.billing.topUp(req)
-    setBalance(res.balance)
+  // Handle return from Stripe checkout
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    const status = searchParams.get("checkout")
+    if (!status) return
+    if (status === "success") {
+      toast.success("Payment successful", { description: "Your credits will appear shortly." })
+    } else if (status === "cancelled") {
+      toast.info("Checkout cancelled")
+    }
+    searchParams.delete("checkout")
+    setSearchParams(searchParams, { replace: true })
+  }, [])
+
+  async function handleBuyCredits(amountUsd: number) {
+    const session = await api.billing.createCheckout({ amount_usd: amountUsd })
+    if (session.url.startsWith("http")) {
+      // Real Stripe checkout — leave the app
+      window.location.href = session.url
+      return
+    }
+    // Mock adapter completes instantly
     setTopUpOpen(false)
     load()
   }
@@ -184,7 +205,7 @@ export default function BillingPage() {
                 <CardTitle className="font-mono text-sm">Transactions</CardTitle>
                 <CardDescription>{transactions.length} total transactions</CardDescription>
               </div>
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <Select value={typeFilter} onValueChange={(v) => v && setTypeFilter(v)}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -356,97 +377,100 @@ export default function BillingPage() {
         </Card>
       </div>
 
-      {/* Top Up Dialog */}
-      <TopUpDialog
+      {/* Buy Credits Dialog */}
+      <BuyCreditsDialog
         open={topUpOpen}
         onOpenChange={setTopUpOpen}
-        onSubmit={handleTopUp}
+        onSubmit={handleBuyCredits}
       />
     </div>
   )
 }
 
 /* ------------------------------------------------------------------ */
-/*  Top Up Dialog                                                      */
+/*  Buy Credits Dialog                                                 */
 /* ------------------------------------------------------------------ */
 
-function TopUpDialog({
+const PRESET_AMOUNTS = [10, 25, 50, 100]
+
+function BuyCreditsDialog({
   open,
   onOpenChange,
   onSubmit,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
-  onSubmit: (req: TopUpRequest) => void
+  onSubmit: (amountUsd: number) => Promise<void>
 }) {
   const [amount, setAmount] = useState("")
-  const [description, setDescription] = useState("")
-  const [referenceId, setReferenceId] = useState("")
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (open) {
       setAmount("")
-      setDescription("")
-      setReferenceId("")
+      setSubmitting(false)
     }
   }, [open])
+
+  async function submit() {
+    setSubmitting(true)
+    try {
+      await onSubmit(Number(amount))
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="font-mono">Add Credit</DialogTitle>
+          <DialogTitle className="font-mono">Buy Credits</DialogTitle>
           <DialogDescription>
-            Top up the tenant balance with a credit amount.
+            Purchase API credits with a card. You'll be redirected to Stripe to complete the payment.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
+          <div className="grid grid-cols-4 gap-2">
+            {PRESET_AMOUNTS.map((v) => (
+              <Button
+                key={v}
+                type="button"
+                variant={amount === String(v) ? "default" : "outline"}
+                onClick={() => setAmount(String(v))}
+              >
+                ${v}
+              </Button>
+            ))}
+          </div>
           <div className="space-y-2">
-            <Label htmlFor="topup-amount" className="font-mono text-xs">Amount (USD)</Label>
+            <Label htmlFor="buy-amount" className="font-mono text-xs">Custom amount (USD)</Label>
             <Input
-              id="topup-amount"
+              id="buy-amount"
               type="number"
-              step="0.01"
-              min="0"
+              step="1"
+              min="5"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="e.g. 100"
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="topup-desc" className="font-mono text-xs">Description</Label>
-            <Input
-              id="topup-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Monthly credit top-up"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="topup-ref" className="font-mono text-xs">Reference ID</Label>
-            <Input
-              id="topup-ref"
-              value={referenceId}
-              onChange={(e) => setReferenceId(e.target.value)}
-              placeholder="e.g. inv-2024-001"
-            />
+            <p className="text-xs text-muted-foreground">Minimum $5.00</p>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
-            onClick={() => onSubmit({
-              amount: Number(amount),
-              description,
-              reference_id: referenceId,
-            })}
-            disabled={!amount || Number(amount) <= 0 || !description}
+            onClick={submit}
+            disabled={!amount || Number(amount) < 5 || submitting}
           >
-            <Plus className="h-4 w-4 mr-1" />
-            Add Credit
+            {submitting
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <DollarSign className="h-4 w-4 mr-1" />}
+            Continue to Payment
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
+

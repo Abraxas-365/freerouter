@@ -5,13 +5,15 @@ import { cn } from "@/lib/utils"
 // ── Status Badge ──
 // Usage: <StatusBadge status="online" />
 
-type StatusLevel = "online" | "degraded" | "down" | "offline"
+type StatusLevel = "online" | "degraded" | "down" | "offline" | "active" | "inactive"
 
 const STATUS_CONFIG: Record<StatusLevel, { label: string; color: string }> = {
   online:   { label: "ONLINE",   color: "bg-success" },
   degraded: { label: "DEGRADED", color: "bg-warning" },
   down:     { label: "DOWN",     color: "bg-destructive" },
   offline:  { label: "OFFLINE",  color: "bg-muted-foreground" },
+  active:   { label: "ACTIVE",   color: "bg-success" },
+  inactive: { label: "INACTIVE", color: "bg-muted-foreground" },
 }
 
 export function StatusBadge({

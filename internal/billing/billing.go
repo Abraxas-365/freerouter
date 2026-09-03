@@ -123,6 +123,24 @@ func (r *AdjustRequest) Validate() error {
 	return nil
 }
 
+// CreateCheckoutRequest starts a Stripe Checkout session to buy credits.
+type CreateCheckoutRequest struct {
+	AmountUSD float64 `json:"amount_usd"`
+}
+
+func (r *CreateCheckoutRequest) Validate() error {
+	if r.AmountUSD <= 0 {
+		return errx.Validation("Amount must be positive").WithDetail("field", "amount_usd")
+	}
+	return nil
+}
+
+// CheckoutSessionResponse is returned after creating a Stripe Checkout session.
+type CheckoutSessionResponse struct {
+	SessionID string `json:"session_id"`
+	URL       string `json:"url"` // Redirect the user here to pay
+}
+
 // ============================================================================
 // Response types
 // ============================================================================

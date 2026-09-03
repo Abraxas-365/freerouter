@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react"
 import {
-  Box, Plus, MoreHorizontal, Pencil, Trash2,
-  Eye, Cpu, Wrench, Braces, Sparkles, Zap, Server,
+  Box, Plus, MoreHorizontal, Pencil, Trash2, Server,
 } from "lucide-react"
 import { useApi } from "@/api"
 import type {
-  Model, CreateModelRequest, ModelWithMappings, Provider, ModelProviderMapping,
+  Model, CreateModelRequest, UpdateModelRequest, ModelWithMappings, Provider,
 } from "@/api/types"
 import { PageHeader, EmptyState, CapabilityBadge } from "@/components"
 import { MetricCardSkeleton } from "@/components/feedback/skeletons"
@@ -58,7 +57,7 @@ export default function ModelsPage() {
     load()
   }
 
-  async function handleUpdate(id: string, req: Partial<CreateModelRequest> & { status?: string; stability?: string }) {
+  async function handleUpdate(id: string, req: UpdateModelRequest) {
     await api.models.update(id, req)
     setEditModel(null)
     load()
@@ -469,3 +468,4 @@ function PriceCell({ label, value }: { label: string; value: number | null }) {
     </div>
   )
 }
+

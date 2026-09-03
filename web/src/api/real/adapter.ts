@@ -10,6 +10,7 @@ import type {
   RoutingConfig, UpsertRoutingConfigRequest,
   CostEstimateRequest, CostEstimateResponse,
   Balance, TopUpRequest, AdjustRequest, Transaction, BillingMutationResponse,
+  CreateCheckoutRequest, CheckoutSession,
   SpendingLimit, UpsertSpendingLimitRequest, SpendingCheck,
   UsageLog, UsageLogDetail, UsageSummaryResponse, UsageQuery,
   DataRetentionConfig, UpsertRetentionRequest,
@@ -111,10 +112,11 @@ const billing = {
   adjust: (req: AdjustRequest) => api.post<BillingMutationResponse>("/api/v1/billing/adjust", req),
   listTransactions: (params?: { type?: string; from?: string; to?: string; limit?: number; offset?: number }) =>
     api.get<Paginated<Transaction>>(`/api/v1/billing/transactions${qs(params ?? {})}`),
-  getSpendingLimit: (tenantId: string) => api.get<SpendingLimit>(`/api/v1/billing/spending-limits/${tenantId}`),
-  upsertSpendingLimit: (tenantId: string, req: UpsertSpendingLimitRequest) => api.put<SpendingLimit>(`/api/v1/billing/spending-limits/${tenantId}`, req),
-  deleteSpendingLimit: (tenantId: string) => api.del<void>(`/api/v1/billing/spending-limits/${tenantId}`),
-  checkSpendingLimit: (tenantId: string) => api.get<SpendingCheck>(`/api/v1/billing/spending-limits/${tenantId}/check`),
+  createCheckout: (req: CreateCheckoutRequest) => api.post<CheckoutSession>("/api/v1/billing/checkout", req),
+  getSpendingLimit: (tenantId: string) => api.get<SpendingLimit>(`/api/v1/spending-limits/${tenantId}`),
+  upsertSpendingLimit: (tenantId: string, req: UpsertSpendingLimitRequest) => api.put<SpendingLimit>(`/api/v1/spending-limits/${tenantId}`, req),
+  deleteSpendingLimit: (tenantId: string) => api.del<void>(`/api/v1/spending-limits/${tenantId}`),
+  checkSpendingLimit: (tenantId: string) => api.get<SpendingCheck>(`/api/v1/spending-limits/${tenantId}/check`),
 }
 
 // =============================================================================

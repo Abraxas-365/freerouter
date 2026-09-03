@@ -201,6 +201,16 @@ func (r *PostgresBillingRepository) QueryTransactions(ctx context.Context, q bil
 
 // helpers
 
+func (r *PostgresBillingRepository) HasTransactionWithReference(ctx context.Context, referenceID string) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists,
+		`SELECT EXISTS(SELECT 1 FROM credit_transactions WHERE reference_id = $1)`, referenceID)
+	if err != nil {
+		return false, errx.Wrap(err, "failed to check transaction reference", errx.TypeInternal)
+	}
+	return exists, nil
+}
+
 func (r *PostgresBillingRepository) initBalance(ctx context.Context, tenantID kernel.TenantID) (*billing.TenantBalance, error) {
 	query := `
 		INSERT INTO tenant_balances (tenant_id, balance, updated_at)
