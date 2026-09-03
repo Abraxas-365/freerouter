@@ -26,3 +26,13 @@ if ! go vet ./...; then
   exit 1
 fi
 echo "✅ go vet"
+
+if command -v golangci-lint > /dev/null; then
+  if ! golangci-lint run --new-from-rev=HEAD; then
+    echo "❌ golangci-lint failed"
+    exit 1
+  fi
+  echo "✅ golangci-lint"
+else
+  echo "⚠️  golangci-lint not installed, skipping (install: https://golangci-lint.run/usage/install/)"
+fi
