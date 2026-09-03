@@ -1,0 +1,137 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type Config struct {
+	Server       ServerConfig
+	Database     DatabaseConfig
+	Redis        RedisConfig
+	Environment  Environment
+	Auth         AuthConfig
+	OAuth        OAuthConfig
+	TenantConfig TenantConfig
+	AI           AIConfig
+	Stripe       StripeConfig
+		Jobx JobxConfig
+		Notifx NotifxConfig
+	// manifesto:config-fields
+}
+
+type Environment string
+
+const (
+	EnvironmentDevelopment Environment = "development"
+	EnvironmentStaging     Environment = "staging"
+	EnvironmentProduction  Environment = "production"
+)
+
+func (c Config) IsDevelopment() bool {
+	return c.Environment == EnvironmentDevelopment
+}
+func (c Config) IsStaging() bool {
+	return c.Environment == EnvironmentStaging
+}
+func (c Config) IsProd() bool {
+	return c.Environment == EnvironmentProduction
+}
+
+func loadEnvironment() Environment {
+	env := getEnv("ENVIRONMENT", "development")
+	switch strings.ToLower(env) {
+	case "production":
+		return EnvironmentProduction
+	case "staging":
+		return EnvironmentStaging
+	default:
+		return EnvironmentDevelopment
+	}
+}
+
+func Load() (*Config, error) {
+	cfg := &Config{
+		Server:       loadServerConfig(),
+		Database:     loadDatabaseConfig(),
+		Redis:        loadRedisConfig(),
+		Environment:  loadEnvironment(),
+		Auth:         loadAuthConfig(),
+		OAuth:        loadOAuthConfig(),
+		TenantConfig: loadTenantConfig(),
+		AI:           loadAIConfig(),
+		Stripe:       loadStripeConfig(),
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+
+			cfg.Jobx = loadJobxConfig()
+		cfg.Notifx = loadNotifxConfig()
+	// manifesto:config-loads
+
+	return cfg, nil
+}
+
+func (c *Config) Validate() error {
+	return nil
+}
+
+func (c *Config) IsProduction() bool {
+	return c.Server.Environment == "production"
+}
+
+// Helper functions
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
+}
+
+func getEnvFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
+		}
+	}
+	return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if boolVal, err := strconv.ParseBool(value); err == nil {
+			return boolVal
+		}
+	}
+	return defaultValue
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
+		}
+	}
+	return defaultValue
+}
+
+func getEnvStringSlice(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		return strings.Split(value, ",")
+	}
+	return defaultValue
+}

@@ -1,0 +1,49 @@
+project:
+    name: freerouter
+    go_module: github.com/Abraxas-365/freerouter
+    manifesto_version: main
+modules:
+    asyncx:
+        version: main
+        installed_at: 2026-08-27T12:56:31.10574-05:00
+    config:
+        version: main
+        installed_at: 2026-08-27T12:56:30.720391-05:00
+    errx:
+        version: main
+        installed_at: 2026-08-27T12:56:30.72039-05:00
+    fsx:
+        version: main
+        installed_at: 2026-08-27T12:56:31.47604-05:00
+    iam:
+        version: main
+        installed_at: 2026-08-27T12:56:41.537607-05:00
+    jobx:
+        version: main
+        installed_at: 2026-08-27T12:56:41.851137-05:00
+    kernel:
+        version: main
+        installed_at: 2026-08-27T12:56:30.72039-05:00
+    logx:
+        version: main
+        installed_at: 2026-08-27T12:56:30.720389-05:00
+    migrations:
+        version: main
+        installed_at: 2026-08-27T12:56:41.53761-05:00
+    notifx:
+        version: main
+        installed_at: 2026-08-27T12:56:42.166133-05:00
+    ptrx:
+        version: main
+        installed_at: 2026-08-27T12:56:30.720391-05:00
+    server:
+        version: main
+        installed_at: 2026-08-27T12:56:30.720391-05:00
+wired_modules:
+    - asyncx
+    - fsx
+    - iam
+    - jobx
+    - notifx
+created_at: 2026-08-27T12:56:30.720389-05:00
+updated_at: 2026-08-27T12:56:46.372192-05:00

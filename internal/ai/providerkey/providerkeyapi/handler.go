@@ -1,0 +1,172 @@
+package providerkeyapi
+
+import (
+	"github.com/Abraxas-365/freerouter/internal/ai/providerkey"
+	"github.com/Abraxas-365/freerouter/internal/ai/providerkey/providerkeysrv"
+	"github.com/Abraxas-365/freerouter/internal/iam/auth"
+	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
+	"github.com/Abraxas-365/freerouter/internal/kernel"
+	"github.com/gofiber/fiber/v2"
+)
+
+type ProviderKeyHandlers struct {
+	service *providerkeysrv.ProviderKeyService
+}
+
+func NewProviderKeyHandlers(service *providerkeysrv.ProviderKeyService) *ProviderKeyHandlers {
+	return &ProviderKeyHandlers{service: service}
+}
+
+func (h *ProviderKeyHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
+	keys := router.Group("/provider-keys", authMiddleware.Authenticate())
+
+	keys.Post("/", authMiddleware.RequireScope(scopes.ScopeProviderKeysWrite), h.CreateKey)
+	keys.Get("/:id", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.GetKey)
+	keys.Put("/:id", authMiddleware.RequireScope(scopes.ScopeProviderKeysWrite), h.UpdateKey)
+	keys.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeProviderKeysDelete), h.DeleteKey)
+
+	keys.Get("/by-provider/:providerId", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListByProvider)
+	keys.Get("/by-tenant/:tenantId", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), auth.ValidateTenantAccess(), h.ListByTenant)
+	keys.Get("/managed", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListManaged)
+
+	keys.Post("/:id/test", authMiddleware.RequireScope(scopes.ScopeProviderKeysWrite), h.TestKey)
+}
+
+func (h *ProviderKeyHandlers) CreateKey(c *fiber.Ctx) error {
+	req, err := kernel.BindAndValidate[providerkey.CreateProviderKeyRequest](c)
+	if err != nil {
+		return err
+	}
+
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+	// Non-admin callers can only create keys for their own tenant.
+	if !authCtx.HasScope("*") {
+		req.TenantID = &authCtx.TenantID
+	}
+
+	k, err := h.service.CreateKey(c.Context(), req)
+	if err != nil {
+		return err
+	}
+	return c.Status(fiber.StatusCreated).JSON(k.ToDTO())
+}
+
+// checkKeyAccess returns a 403 error if the key belongs to a different tenant.
+// Managed keys (nil tenant) are accessible; "*" scope bypasses the check.
+func checkKeyAccess(c *fiber.Ctx, k *providerkey.ProviderKey) error {
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+	if k.TenantID != nil && *k.TenantID != authCtx.TenantID && !authCtx.HasScope("*") {
+		return fiber.NewError(fiber.StatusForbidden, "access denied to this key")
+	}
+	return nil
+}
+
+func (h *ProviderKeyHandlers) GetKey(c *fiber.Ctx) error {
+	k, err := h.service.GetKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
+	if err != nil {
+		return err
+	}
+	if err := checkKeyAccess(c, k); err != nil {
+		return err
+	}
+	return c.JSON(k.ToDTO())
+}
+
+func (h *ProviderKeyHandlers) UpdateKey(c *fiber.Ctx) error {
+	req, err := kernel.BindAndValidate[providerkey.UpdateProviderKeyRequest](c)
+	if err != nil {
+		return err
+	}
+
+	existing, err := h.service.GetKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
+	if err != nil {
+		return err
+	}
+	if err := checkKeyAccess(c, existing); err != nil {
+		return err
+	}
+
+	k, err := h.service.UpdateKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")), req)
+	if err != nil {
+		return err
+	}
+	return c.JSON(k.ToDTO())
+}
+
+func (h *ProviderKeyHandlers) DeleteKey(c *fiber.Ctx) error {
+	existing, err := h.service.GetKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
+	if err != nil {
+		return err
+	}
+	if err := checkKeyAccess(c, existing); err != nil {
+		return err
+	}
+
+	if err := h.service.DeleteKey(c.Context(), kernel.NewProviderKeyID(c.Params("id"))); err != nil {
+		return err
+	}
+	return c.JSON(fiber.Map{"message": "Provider key deleted successfully"})
+}
+
+func (h *ProviderKeyHandlers) ListByProvider(c *fiber.Ctx) error {
+	authCtx, ok := auth.GetAuthContext(c)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
+	}
+
+	response, err := h.service.ListByProvider(c.Context(), kernel.NewProviderID(c.Params("providerId")))
+	if err != nil {
+		return err
+	}
+
+	// Non-admin callers only see managed keys and their own tenant's keys.
+	if !authCtx.HasScope("*") {
+		filtered := response.Keys[:0]
+		for _, k := range response.Keys {
+			if k.TenantID == nil || *k.TenantID == authCtx.TenantID {
+				filtered = append(filtered, k)
+			}
+		}
+		response.Keys = filtered
+		response.Total = len(filtered)
+	}
+	return c.JSON(response)
+}
+
+func (h *ProviderKeyHandlers) ListByTenant(c *fiber.Ctx) error {
+	response, err := h.service.ListByTenant(c.Context(), kernel.NewTenantID(c.Params("tenantId")))
+	if err != nil {
+		return err
+	}
+	return c.JSON(response)
+}
+
+func (h *ProviderKeyHandlers) ListManaged(c *fiber.Ctx) error {
+	response, err := h.service.ListManaged(c.Context())
+	if err != nil {
+		return err
+	}
+	return c.JSON(response)
+}
+
+func (h *ProviderKeyHandlers) TestKey(c *fiber.Ctx) error {
+	existing, err := h.service.GetKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
+	if err != nil {
+		return err
+	}
+	if err := checkKeyAccess(c, existing); err != nil {
+		return err
+	}
+
+	result, err := h.service.TestKey(c.Context(), kernel.NewProviderKeyID(c.Params("id")))
+	if err != nil {
+		return err
+	}
+	return c.JSON(result)
+}
