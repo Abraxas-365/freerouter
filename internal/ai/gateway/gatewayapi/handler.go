@@ -20,6 +20,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/iam/auth"
 	"github.com/Abraxas-365/freerouter/internal/iam/scopes"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
+	"github.com/Abraxas-365/freerouter/internal/wallet/walletsrv"
 	"github.com/Abraxas-365/freerouter/internal/webhook"
 	"github.com/Abraxas-365/freerouter/internal/webhook/webhooksrv"
 	"github.com/gofiber/fiber/v2"
@@ -84,6 +85,7 @@ type GatewayHandlers struct {
 	cache         *gateway.ResponseCache
 	metrics       *gateway.Metrics
 	webhooks      *webhooksrv.WebhookService      // optional, nil = no webhook notifications
+	wallet        *walletsrv.WalletService        // optional, nil = wallet billing disabled
 	routingRepo   gateway.RoutingConfigRepository // optional, nil = no per-tenant strategy
 }
 
@@ -118,6 +120,11 @@ func NewGatewayHandlers(
 // SetWebhooks sets the webhook service for firing events.
 func (h *GatewayHandlers) SetWebhooks(ws *webhooksrv.WebhookService) {
 	h.webhooks = ws
+}
+
+// SetWalletService sets the optional wallet service used for API-key wallet billing.
+func (h *GatewayHandlers) SetWalletService(ws *walletsrv.WalletService) {
+	h.wallet = ws
 }
 
 // SetRoutingConfigRepo sets the routing config repository for per-tenant strategy lookup.
@@ -257,6 +264,9 @@ func (h *GatewayHandlers) ChatCompletions(c *fiber.Ctx) error {
 	if err := h.checkSpendingLimit(c, authCtx.TenantID); err != nil {
 		return err
 	}
+	if err := h.checkWalletBalance(c, authCtx); err != nil {
+		return err
+	}
 
 	var req gateway.ChatRequest
 	if err := json.Unmarshal(c.Body(), &req); err != nil {
@@ -304,7 +314,7 @@ func (h *GatewayHandlers) ChatCompletions(c *fiber.Ctx) error {
 	if req.Stream {
 		req.Model = routes[0].ExternalID // will be overwritten per-route in handleStreamWithRetry
 		body, _ := json.Marshal(req)
-		return h.handleStreamWithRetry(c, routes, &req, requestedModel, authCtx.TenantID, body)
+		return h.handleStreamWithRetry(c, routes, &req, requestedModel, authCtx.TenantID, authCtx.WalletID, body)
 	}
 
 	// Check response cache for non-streaming requests
@@ -322,10 +332,10 @@ func (h *GatewayHandlers) ChatCompletions(c *fiber.Ctx) error {
 		}
 	}
 
-	return h.handleNonStreamWithRetry(c, routes, &req, requestedModel, authCtx.TenantID, cacheKey)
+	return h.handleNonStreamWithRetry(c, routes, &req, requestedModel, authCtx.TenantID, authCtx.WalletID, cacheKey)
 }
 
-func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, req *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, cacheKey string) error {
+func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, req *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, walletID *kernel.WalletID, cacheKey string) error {
 	maxAttempts := gateway.MaxRetries + 1
 	if maxAttempts > len(routes) {
 		maxAttempts = len(routes)
@@ -386,11 +396,7 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 
 		// Debit tenant balance for token usage
 		cost := calculateCost(route, resp)
-		if cost > 0 {
-			if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
-				slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
-			}
-		}
+		h.debitUsage(c.Context(), tenantID, walletID, cost)
 
 		// Set retry headers if we retried
 		if attempt > 0 {
@@ -421,7 +427,7 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 	return lastErr
 }
 
-func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, req *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, _ []byte) error {
+func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, req *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, walletID *kernel.WalletID, _ []byte) error {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
@@ -479,11 +485,9 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 						resp = &gateway.ChatResponse{Usage: lastChunk.Usage, Choices: lastChunk.Choices}
 					}
 					cost := calculateCost(route, resp)
-					if cost > 0 {
-						debitCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
-						defer dc()
-						h.billing.DebitUsage(debitCtx, tenantID, cost, "")
-					}
+					debitCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+					defer dc()
+					h.debitUsage(debitCtx, tenantID, walletID, cost)
 					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr, nil)
 					return
 				}
@@ -534,13 +538,9 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 			w.Flush()
 
 			cost := calculateCost(route, resp)
-			if cost > 0 {
-				debitCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
-				defer dc()
-				if _, err := h.billing.DebitUsage(debitCtx, tenantID, cost, ""); err != nil {
-					slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
-				}
-			}
+			debitCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+			defer dc()
+			h.debitUsage(debitCtx, tenantID, walletID, cost)
 
 			if h.metrics != nil {
 				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "ok", duration)
@@ -607,6 +607,45 @@ func (h *GatewayHandlers) checkRateLimit(c *fiber.Ctx, tenantID kernel.TenantID)
 				"message": "Rate limit exceeded",
 				"type":    "rate_limit_error",
 				"code":    "rate_limit_exceeded",
+			},
+		})
+	}
+	return nil
+}
+
+// debitUsage charges a request cost to the wallet bound to the API key, or to
+// the tenant main balance when no wallet is bound. Failures are logged, not fatal.
+func (h *GatewayHandlers) debitUsage(ctx context.Context, tenantID kernel.TenantID, walletID *kernel.WalletID, cost float64) {
+	if cost <= 0 {
+		return
+	}
+	if walletID != nil && !walletID.IsEmpty() && h.wallet != nil {
+		if _, err := h.wallet.DebitUsage(ctx, tenantID, *walletID, cost, ""); err != nil {
+			slog.Error("failed to debit wallet usage", "tenant_id", tenantID, "wallet_id", *walletID, "cost", cost, "error", err)
+		}
+		return
+	}
+	if _, err := h.billing.DebitUsage(ctx, tenantID, cost, ""); err != nil {
+		slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
+	}
+}
+
+// checkWalletBalance rejects the request with 402 when the API key is bound to
+// a wallet that has no funds left.
+func (h *GatewayHandlers) checkWalletBalance(c *fiber.Ctx, authCtx *kernel.AuthContext) error {
+	if authCtx.WalletID == nil || authCtx.WalletID.IsEmpty() || h.wallet == nil {
+		return nil
+	}
+	ok, err := h.wallet.HasSufficientFunds(c.Context(), authCtx.TenantID, *authCtx.WalletID)
+	if err != nil {
+		return nil // fail open, like checkSpendingLimit
+	}
+	if !ok {
+		return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+			"error": fiber.Map{
+				"message": "Wallet has insufficient funds",
+				"type":    "insufficient_funds_error",
+				"code":    "wallet_insufficient_funds",
 			},
 		})
 	}

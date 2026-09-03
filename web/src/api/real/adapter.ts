@@ -12,6 +12,8 @@ import type {
   Balance, TopUpRequest, AdjustRequest, Transaction, BillingMutationResponse,
   CreateCheckoutRequest, CheckoutSession,
   SpendingLimit, UpsertSpendingLimitRequest, SpendingCheck,
+  Wallet, CreateWalletRequest, UpdateWalletRequest,
+  WalletTransferRequest, WalletListResponse, WalletTransferResponse,
   UsageLog, UsageLogDetail, UsageSummaryResponse, UsageQuery,
   DataRetentionConfig, UpsertRetentionRequest,
   GuardrailConfig, UpsertGuardrailConfigRequest,
@@ -117,6 +119,20 @@ const billing = {
   upsertSpendingLimit: (tenantId: string, req: UpsertSpendingLimitRequest) => api.put<SpendingLimit>(`/api/v1/spending-limits/${tenantId}`, req),
   deleteSpendingLimit: (tenantId: string) => api.del<void>(`/api/v1/spending-limits/${tenantId}`),
   checkSpendingLimit: (tenantId: string) => api.get<SpendingCheck>(`/api/v1/spending-limits/${tenantId}/check`),
+}
+
+// =============================================================================
+// Wallets
+// =============================================================================
+
+const wallets = {
+  list: () => api.get<WalletListResponse>("/api/v1/wallets"),
+  get: (id: string) => api.get<Wallet>(`/api/v1/wallets/${id}`),
+  create: (req: CreateWalletRequest) => api.post<Wallet>("/api/v1/wallets", req),
+  update: (id: string, req: UpdateWalletRequest) => api.put<Wallet>(`/api/v1/wallets/${id}`, req),
+  delete: (id: string) => api.del<void>(`/api/v1/wallets/${id}`),
+  fund: (id: string, req: WalletTransferRequest) => api.post<WalletTransferResponse>(`/api/v1/wallets/${id}/fund`, req),
+  withdraw: (id: string, req: WalletTransferRequest) => api.post<WalletTransferResponse>(`/api/v1/wallets/${id}/withdraw`, req),
 }
 
 // =============================================================================
@@ -231,6 +247,7 @@ export const realApi: ApiPort = {
   providerKeys,
   gatewayConfig,
   billing,
+  wallets,
   usage,
   guardrails,
   webhooks,

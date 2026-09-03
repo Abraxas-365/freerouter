@@ -7,6 +7,7 @@ import ModelsPage from "./pages/models"
 import ProviderKeysPage from "./pages/provider-keys"
 import GatewayConfigPage from "./pages/gateway-config"
 import BillingPage from "./pages/billing"
+import WalletsPage from "./pages/wallets"
 import UsagePage from "./pages/usage"
 import GuardrailsPage from "./pages/guardrails"
 import WebhooksPage from "./pages/webhooks"
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="/provider-keys" element={<ProviderKeysPage />} />
           <Route path="/gateway" element={<GatewayConfigPage />} />
           <Route path="/billing" element={<BillingPage />} />
+          <Route path="/wallets" element={<WalletsPage />} />
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/guardrails" element={<GuardrailsPage />} />
           <Route path="/webhooks" element={<WebhooksPage />} />
@@ -33,3 +35,4 @@ export default function App() {
     </BrowserRouter>
   )
 }
+

@@ -7,6 +7,7 @@ import type {
   ProviderKeyPort,
   GatewayConfigPort,
   BillingPort,
+  WalletsPort,
   UsagePort,
   GuardrailsPort,
   WebhooksPort,
@@ -25,6 +26,7 @@ import type {
   RoutingConfig,
   Transaction,
   SpendingLimit,
+  Wallet,
   DataRetentionConfig,
   GuardrailConfig,
   GuardrailRule,
@@ -46,6 +48,7 @@ import {
   balances,
   transactions,
   spendingLimits,
+  wallets as walletsData,
   usageLogs,
   guardrailConfigs,
   guardrailRules,
@@ -554,6 +557,96 @@ export const billingPort: BillingPort = {
 }
 
 // =============================================================================
+// Wallets Port
+// =============================================================================
+
+const walletTxn = (type: Transaction["type"], amount: number, balanceAfter: number, description: string) => {
+  const txn: Transaction = {
+    id: crypto.randomUUID(),
+    type,
+    amount,
+    balance_after: balanceAfter,
+    description,
+    reference_id: "",
+    created_at: new Date().toISOString(),
+  }
+  transactions.unshift(txn)
+  return txn
+}
+
+export const walletsPort: WalletsPort = {
+  async list() {
+    await delay()
+    return { wallets: [...walletsData], total: walletsData.length }
+  },
+  async get(id) {
+    await delay()
+    const w = walletsData.find((w) => w.id === id)
+    if (!w) throw new Error("Wallet not found")
+    return w
+  },
+  async create(req) {
+    await delay()
+    if (walletsData.some((w) => w.name === req.name)) throw new Error("A wallet with this name already exists")
+    const w: Wallet = {
+      id: crypto.randomUUID(),
+      tenant_id: TENANT,
+      name: req.name,
+      description: req.description ?? "",
+      balance: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    walletsData.push(w)
+    return w
+  },
+  async update(id, req) {
+    await delay()
+    const w = walletsData.find((w) => w.id === id)
+    if (!w) throw new Error("Wallet not found")
+    if (req.name !== undefined) w.name = req.name
+    if (req.description !== undefined) w.description = req.description
+    w.updated_at = new Date().toISOString()
+    return w
+  },
+  async delete(id) {
+    await delay()
+    const idx = walletsData.findIndex((w) => w.id === id)
+    if (idx === -1) throw new Error("Wallet not found")
+    const w = walletsData[idx]!
+    if (w.balance > 0) throw new Error("Wallet must be empty before deletion")
+    if (apiKeys.some((k) => k.wallet_id === id)) throw new Error("Wallet is bound to one or more API keys")
+    walletsData.splice(idx, 1)
+  },
+  async fund(id, req) {
+    await delay()
+    const w = walletsData.find((w) => w.id === id)
+    const balance = balances[0]
+    if (!w || !balance) throw new Error("Wallet not found")
+    if (balance.balance < req.amount) throw new Error("Insufficient main balance to fund wallet")
+    balance.balance -= req.amount
+    balance.updated_at = new Date().toISOString()
+    w.balance += req.amount
+    w.updated_at = new Date().toISOString()
+    walletTxn("wallet_fund", -req.amount, balance.balance, req.description || `Fund wallet "${w.name}" with $${req.amount.toFixed(2)}`)
+    return { wallet: w, main_balance: balance }
+  },
+  async withdraw(id, req) {
+    await delay()
+    const w = walletsData.find((w) => w.id === id)
+    const balance = balances[0]
+    if (!w || !balance) throw new Error("Wallet not found")
+    if (w.balance < req.amount) throw new Error("Insufficient wallet funds")
+    w.balance -= req.amount
+    w.updated_at = new Date().toISOString()
+    balance.balance += req.amount
+    balance.updated_at = new Date().toISOString()
+    walletTxn("wallet_withdraw", req.amount, balance.balance, req.description || `Withdraw $${req.amount.toFixed(2)} from wallet "${w.name}"`)
+    return { wallet: w, main_balance: balance }
+  },
+}
+
+// =============================================================================
 // Usage Port
 // =============================================================================
 
@@ -918,6 +1011,7 @@ export const apiKeysPort: ApiKeysPort = {
       key_prefix: `fr_${req.environment}_${newId.slice(0, 6)}`,
       tenant_id: defaultTenantId(),
       user_id: req.user_id ?? null,
+      wallet_id: req.wallet_id || null,
       name: req.name,
       description: req.description,
       scopes: req.scopes,
@@ -939,6 +1033,7 @@ export const apiKeysPort: ApiKeysPort = {
     const key = apiKeys.find((k) => k.id === id)
     if (!key) throw new Error("Not found")
     Object.assign(key, req)
+    if (req.wallet_id !== undefined) key.wallet_id = req.wallet_id || null
     return key
   },
   async revoke(id) {
@@ -1166,6 +1261,7 @@ export const mockApi: ApiPort = {
   providerKeys: providerKeyPort,
   gatewayConfig: gatewayConfigPort,
   billing: billingPort,
+  wallets: walletsPort,
   usage: usagePort,
   guardrails: guardrailsPort,
   webhooks: webhooksPort,

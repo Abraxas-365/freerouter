@@ -17,6 +17,9 @@ import type {
   Balance, Transaction, TopUpRequest, AdjustRequest, BillingMutationResponse,
   CreateCheckoutRequest, CheckoutSession,
   SpendingLimit, UpsertSpendingLimitRequest, SpendingCheck,
+  // Wallets
+  Wallet, CreateWalletRequest, UpdateWalletRequest,
+  WalletTransferRequest, WalletListResponse, WalletTransferResponse,
   // Usage
   UsageLog, UsageLogDetail, UsageSummaryResponse, UsageQuery,
   DataRetentionConfig, UpsertRetentionRequest,
@@ -181,6 +184,20 @@ export interface WebhooksPort {
 }
 
 // =============================================================================
+// Wallets Port
+// =============================================================================
+
+export interface WalletsPort {
+  list(): Promise<WalletListResponse>
+  get(id: string): Promise<Wallet>
+  create(req: CreateWalletRequest): Promise<Wallet>
+  update(id: string, req: UpdateWalletRequest): Promise<Wallet>
+  delete(id: string): Promise<void>
+  fund(id: string, req: WalletTransferRequest): Promise<WalletTransferResponse>
+  withdraw(id: string, req: WalletTransferRequest): Promise<WalletTransferResponse>
+}
+
+// =============================================================================
 // API Keys Port
 // =============================================================================
 
@@ -249,6 +266,7 @@ export interface ApiPort {
   providerKeys: ProviderKeyPort
   gatewayConfig: GatewayConfigPort
   billing: BillingPort
+  wallets: WalletsPort
   usage: UsagePort
   guardrails: GuardrailsPort
   webhooks: WebhooksPort

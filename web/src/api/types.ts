@@ -274,7 +274,46 @@ export interface Balance {
   updated_at: string
 }
 
-export type TransactionType = "top_up" | "usage" | "refund" | "adjust"
+// =============================================================================
+// Wallets
+// =============================================================================
+
+export interface Wallet {
+  id: string
+  tenant_id: string
+  name: string
+  description: string
+  balance: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateWalletRequest {
+  name: string
+  description?: string
+}
+
+export interface UpdateWalletRequest {
+  name?: string
+  description?: string
+}
+
+export interface WalletTransferRequest {
+  amount: number
+  description?: string
+}
+
+export interface WalletListResponse {
+  wallets: Wallet[]
+  total: number
+}
+
+export interface WalletTransferResponse {
+  wallet: Wallet
+  main_balance: Balance
+}
+
+export type TransactionType = "top_up" | "usage" | "refund" | "adjust" | "wallet_fund" | "wallet_withdraw"
 
 export interface Transaction {
   id: string
@@ -580,6 +619,7 @@ export interface ApiKey {
   key_prefix: string
   tenant_id: string
   user_id: string | null
+  wallet_id: string | null
   name: string
   description: string
   scopes: string[]
@@ -598,6 +638,7 @@ export interface CreateApiKeyRequest {
   expires_in?: number
   environment: string
   user_id?: string
+  wallet_id?: string
 }
 
 export interface UpdateApiKeyRequest {
@@ -606,6 +647,7 @@ export interface UpdateApiKeyRequest {
   scopes?: string[]
   allowed_models?: string[]
   is_active?: boolean
+  wallet_id?: string
 }
 
 export interface CreateApiKeyResponse {
@@ -725,3 +767,4 @@ export interface ScopeDetail {
 // =============================================================================
 // Shared (bottom)
 // =============================================================================
+

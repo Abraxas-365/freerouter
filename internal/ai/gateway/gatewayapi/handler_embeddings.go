@@ -2,7 +2,6 @@ package gatewayapi
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -44,6 +43,9 @@ func (h *GatewayHandlers) Embeddings(c *fiber.Ctx) error {
 	if err := h.checkSpendingLimit(c, tenantID); err != nil {
 		return err
 	}
+	if err := h.checkWalletBalance(c, authCtx); err != nil {
+		return err
+	}
 	if err := h.checkRateLimit(c, tenantID); err != nil {
 		return err
 	}
@@ -74,11 +76,7 @@ func (h *GatewayHandlers) Embeddings(c *fiber.Ctx) error {
 
 	// Calculate cost using the mapping's token pricing
 	cost := calculateEmbeddingCost(route, &embResp.Usage)
-	if cost > 0 {
-		if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
-			slog.Error("embedding: failed to debit usage", "error", err, "tenant_id", tenantID, "cost", cost)
-		}
-	}
+	h.debitUsage(c.Context(), tenantID, authCtx.WalletID, cost)
 
 	// Metrics
 	if h.metrics != nil {

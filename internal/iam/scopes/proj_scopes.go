@@ -33,6 +33,13 @@ const (
 	ScopeBillingWrite = "billing:write"
 	ScopeBillingAdmin = "billing:admin"
 
+	// Wallet scopes
+	ScopeWalletsAll      = "wallets:*"
+	ScopeWalletsRead     = "wallets:read"
+	ScopeWalletsWrite    = "wallets:write"
+	ScopeWalletsTransfer = "wallets:transfer"
+	ScopeWalletsDelete   = "wallets:delete"
+
 	// Rate limit scopes
 	ScopeRateLimitsAll   = "rate-limits:*"
 	ScopeRateLimitsRead  = "rate-limits:read"
@@ -86,6 +93,13 @@ var DomainScopeCategories = map[string][]string{
 		ScopeBillingWrite,
 		ScopeBillingAdmin,
 	},
+	"Wallets": {
+		ScopeWalletsAll,
+		ScopeWalletsRead,
+		ScopeWalletsWrite,
+		ScopeWalletsTransfer,
+		ScopeWalletsDelete,
+	},
 	"Rate Limits": {
 		ScopeRateLimitsAll,
 		ScopeRateLimitsRead,
@@ -135,6 +149,12 @@ var DomainScopeDescriptions = map[string]string{
 	ScopeBillingWrite: "Manage billing",
 	ScopeBillingAdmin: "Administer billing and spending limits",
 
+	ScopeWalletsAll:      "Full access to wallet management",
+	ScopeWalletsRead:     "View wallets and balances",
+	ScopeWalletsWrite:    "Create and edit wallets",
+	ScopeWalletsTransfer: "Fund and withdraw wallet credits",
+	ScopeWalletsDelete:   "Delete wallets",
+
 	ScopeRateLimitsAll:   "Full access to rate limit management",
 	ScopeRateLimitsRead:  "View rate limit configuration",
 	ScopeRateLimitsWrite: "Configure rate limits",
@@ -151,3 +171,4 @@ var DomainScopeDescriptions = map[string]string{
 	ScopeWebhooksRead:  "View webhooks and deliveries",
 	ScopeWebhooksWrite: "Create, edit, and delete webhooks",
 }
+

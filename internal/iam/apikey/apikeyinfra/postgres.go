@@ -68,6 +68,7 @@ func (r *PostgresAPIKeyRepository) update(ctx context.Context, key apikey.APIKey
 			scopes = :scopes,
 			allowed_models = :allowed_models,
 			is_active = :is_active,
+			wallet_id = :wallet_id,
 			expires_at = :expires_at,
 			last_used_at = :last_used_at,
 			updated_at = :updated_at
@@ -198,20 +199,21 @@ func (r *PostgresAPIKeyRepository) keyExists(ctx context.Context, id string) (bo
 
 // apiKeyPersistence is the persistence model with DB-specific types.
 type apiKeyPersistence struct {
-	ID            string          `db:"id"`
-	KeyHash       string          `db:"key_hash"`
-	KeyPrefix     string          `db:"key_prefix"`
-	TenantID      kernel.TenantID `db:"tenant_id"`
-	UserID        *kernel.UserID  `db:"user_id"`
-	Name          string          `db:"name"`
-	Description   sql.NullString  `db:"description"`
-	Scopes        pq.StringArray  `db:"scopes"`
-	AllowedModels pq.StringArray  `db:"allowed_models"`
-	IsActive      bool            `db:"is_active"`
-	ExpiresAt     *time.Time      `db:"expires_at"`
-	LastUsedAt    *time.Time      `db:"last_used_at"`
-	CreatedAt     time.Time       `db:"created_at"`
-	UpdatedAt     time.Time       `db:"updated_at"`
+	ID            string           `db:"id"`
+	KeyHash       string           `db:"key_hash"`
+	KeyPrefix     string           `db:"key_prefix"`
+	TenantID      kernel.TenantID  `db:"tenant_id"`
+	UserID        *kernel.UserID   `db:"user_id"`
+	WalletID      *kernel.WalletID `db:"wallet_id"`
+	Name          string           `db:"name"`
+	Description   sql.NullString   `db:"description"`
+	Scopes        pq.StringArray   `db:"scopes"`
+	AllowedModels pq.StringArray   `db:"allowed_models"`
+	IsActive      bool             `db:"is_active"`
+	ExpiresAt     *time.Time       `db:"expires_at"`
+	LastUsedAt    *time.Time       `db:"last_used_at"`
+	CreatedAt     time.Time        `db:"created_at"`
+	UpdatedAt     time.Time        `db:"updated_at"`
 }
 
 // toPersistence converts the domain model to a persistence model.
@@ -222,6 +224,7 @@ func toPersistence(key apikey.APIKey) apiKeyPersistence {
 		KeyPrefix:     key.KeyPrefix,
 		TenantID:      key.TenantID,
 		UserID:        key.UserID,
+		WalletID:      key.WalletID,
 		Name:          key.Name,
 		Description:   sql.NullString{String: key.Description, Valid: key.Description != ""},
 		Scopes:        key.Scopes,

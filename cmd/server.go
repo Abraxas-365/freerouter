@@ -183,6 +183,9 @@ func registerRoutes(app *fiber.App, container *Container) {
 	container.Billing.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > Billing routes registered")
 
+	container.Wallet.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  > Wallet routes registered")
+
 	container.AI.Guardrails.Handlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > Guardrails routes registered")
 

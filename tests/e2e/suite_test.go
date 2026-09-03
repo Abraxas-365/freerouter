@@ -375,7 +375,7 @@ func (s *Suite) initContainers() {
 		Cfg:   s.Config,
 	})
 
-	s.Billing = billingcontainer.New(s.DB)
+	s.Billing = billingcontainer.New(s.DB, s.Config.Stripe)
 	s.Webhook = webhookcontainer.New(s.DB)
 
 	s.AI = aicontainer.New(aicontainer.Deps{

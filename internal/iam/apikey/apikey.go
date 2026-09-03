@@ -15,20 +15,21 @@ import (
 )
 
 type APIKey struct {
-	ID          string          `db:"id" json:"id"`
-	KeyHash     string          `db:"key_hash" json:"-"` // Never expose the hash
-	KeyPrefix   string          `db:"key_prefix" json:"key_prefix"`
-	TenantID    kernel.TenantID `db:"tenant_id" json:"tenant_id"`
-	UserID      *kernel.UserID  `db:"user_id" json:"user_id,omitempty"`
-	Name        string          `db:"name" json:"name"`
-	Description string          `db:"description" json:"description,omitempty"`
-	Scopes      []string        `db:"scopes" json:"scopes"`
-	AllowedModels []string      `db:"allowed_models" json:"allowed_models,omitempty"`
-	IsActive    bool            `db:"is_active" json:"is_active"`
-	ExpiresAt   *time.Time      `db:"expires_at" json:"expires_at,omitempty"`
-	LastUsedAt  *time.Time      `db:"last_used_at" json:"last_used_at,omitempty"`
-	CreatedAt   time.Time       `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time       `db:"updated_at" json:"updated_at"`
+	ID            string           `db:"id" json:"id"`
+	KeyHash       string           `db:"key_hash" json:"-"` // Never expose the hash
+	KeyPrefix     string           `db:"key_prefix" json:"key_prefix"`
+	TenantID      kernel.TenantID  `db:"tenant_id" json:"tenant_id"`
+	UserID        *kernel.UserID   `db:"user_id" json:"user_id,omitempty"`
+	WalletID      *kernel.WalletID `db:"wallet_id" json:"wallet_id,omitempty"` // When set, gateway usage debits this wallet
+	Name          string           `db:"name" json:"name"`
+	Description   string           `db:"description" json:"description,omitempty"`
+	Scopes        []string         `db:"scopes" json:"scopes"`
+	AllowedModels []string         `db:"allowed_models" json:"allowed_models,omitempty"`
+	IsActive      bool             `db:"is_active" json:"is_active"`
+	ExpiresAt     *time.Time       `db:"expires_at" json:"expires_at,omitempty"`
+	LastUsedAt    *time.Time       `db:"last_used_at" json:"last_used_at,omitempty"`
+	CreatedAt     time.Time        `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time        `db:"updated_at" json:"updated_at"`
 }
 
 func (k *APIKey) IsValid() bool {
@@ -108,18 +109,19 @@ func ValidateAPIKeyFormat(key string) bool {
 }
 
 type APIKeyDTO struct {
-	ID          string          `json:"id"`
-	KeyPrefix   string          `json:"key_prefix"`
-	TenantID    kernel.TenantID `json:"tenant_id"`
-	UserID      *kernel.UserID  `json:"user_id,omitempty"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Scopes      []string        `json:"scopes"`
-	AllowedModels []string      `json:"allowed_models,omitempty"`
-	IsActive    bool            `json:"is_active"`
-	ExpiresAt   *time.Time      `json:"expires_at,omitempty"`
-	LastUsedAt  *time.Time      `json:"last_used_at,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID            string           `json:"id"`
+	KeyPrefix     string           `json:"key_prefix"`
+	TenantID      kernel.TenantID  `json:"tenant_id"`
+	UserID        *kernel.UserID   `json:"user_id,omitempty"`
+	WalletID      *kernel.WalletID `json:"wallet_id,omitempty"`
+	Name          string           `json:"name"`
+	Description   string           `json:"description,omitempty"`
+	Scopes        []string         `json:"scopes"`
+	AllowedModels []string         `json:"allowed_models,omitempty"`
+	IsActive      bool             `json:"is_active"`
+	ExpiresAt     *time.Time       `json:"expires_at,omitempty"`
+	LastUsedAt    *time.Time       `json:"last_used_at,omitempty"`
+	CreatedAt     time.Time        `json:"created_at"`
 }
 
 func (k *APIKey) ToDTO() APIKeyDTO {
@@ -140,13 +142,14 @@ func (k *APIKey) ToDTO() APIKeyDTO {
 }
 
 type CreateAPIKeyRequest struct {
-	Name          string         `json:"name"`
-	Description   string         `json:"description"`
-	Scopes        []string       `json:"scopes"`
-	AllowedModels []string       `json:"allowed_models,omitempty"`
-	ExpiresIn     *int           `json:"expires_in"` // Days until expiration
-	Environment   string         `json:"environment"`
-	UserID        *kernel.UserID `json:"user_id"` // Optional: associate with specific user
+	Name          string           `json:"name"`
+	Description   string           `json:"description"`
+	Scopes        []string         `json:"scopes"`
+	AllowedModels []string         `json:"allowed_models,omitempty"`
+	ExpiresIn     *int             `json:"expires_in"` // Days until expiration
+	Environment   string           `json:"environment"`
+	UserID        *kernel.UserID   `json:"user_id"`             // Optional: associate with specific user
+	WalletID      *kernel.WalletID `json:"wallet_id,omitempty"` // Optional: bind usage billing to a wallet
 }
 
 func (r *CreateAPIKeyRequest) Validate() error {

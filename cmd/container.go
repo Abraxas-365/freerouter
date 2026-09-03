@@ -26,6 +26,7 @@ import (
 		"github.com/Abraxas-365/freerouter/internal/notifx/notifxconsole"
 		"github.com/aws/aws-sdk-go-v2/service/ses"
 		"github.com/Abraxas-365/freerouter/internal/webhook/webhookcontainer"
+		"github.com/Abraxas-365/freerouter/internal/wallet/walletcontainer"
 	// manifesto:container-imports
 )
 
@@ -46,6 +47,7 @@ type Container struct {
 		JobClient *jobx.Client
 		NotifxClient *notifx.Client
 		Webhook *webhookcontainer.Container
+		Wallet *walletcontainer.Container
 	// manifesto:container-fields
 }
 
@@ -121,6 +123,9 @@ func (c *Container) initModules() {
 
 	c.Billing = billingcontainer.New(c.DB, c.Config.Stripe)
 
+	c.Wallet = walletcontainer.New(c.DB, c.Billing.Repo)
+	c.IAM.APIKeyService.SetWalletValidator(c.Wallet.Service)
+
 	c.AI = aicontainer.New(aicontainer.Deps{
 		DB:             c.DB,
 		Redis:          c.Redis,
@@ -128,6 +133,7 @@ func (c *Container) initModules() {
 		BillingRepo:    c.Billing.Repo,
 		BillingService: c.Billing.Service,
 	})
+	c.AI.Gateway.Handlers.SetWalletService(c.Wallet.Service)
 
 		c.initJobx()
 

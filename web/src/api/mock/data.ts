@@ -1,6 +1,7 @@
 import type {
   ApiKey,
   Balance,
+  Wallet,
   GuardrailConfig,
   GuardrailRule,
   GuardrailViolation,
@@ -570,6 +571,40 @@ export let balances: Balance[] = [
 ]
 
 // =============================================================================
+// Wallets
+// =============================================================================
+
+export let wallets: Wallet[] = [
+  {
+    id: "wallet-1",
+    tenant_id: TENANT,
+    name: "production-app",
+    description: "Main production application budget",
+    balance: 120.5,
+    created_at: ago(20),
+    updated_at: ago(1),
+  },
+  {
+    id: "wallet-2",
+    tenant_id: TENANT,
+    name: "customer-acme",
+    description: "Credits allocated to ACME Corp",
+    balance: 45,
+    created_at: ago(12),
+    updated_at: ago(2),
+  },
+  {
+    id: "wallet-3",
+    tenant_id: TENANT,
+    name: "dev-testing",
+    description: "",
+    balance: 0,
+    created_at: ago(5),
+    updated_at: ago(5),
+  },
+]
+
+// =============================================================================
 // Billing: Transactions
 // =============================================================================
 
@@ -1079,6 +1114,7 @@ export let apiKeys: ApiKey[] = [
     key_prefix: "fr_live_a1b2c3",
     tenant_id: TENANT,
     user_id: USER_ADMIN,
+    wallet_id: "wallet-1",
     name: "Production Key",
     description: "Primary key used by the production backend service.",
     scopes: ["api_keys:read", "users:read"],
@@ -1093,6 +1129,7 @@ export let apiKeys: ApiKey[] = [
     key_prefix: "fr_test_d4e5f6",
     tenant_id: TENANT,
     user_id: USER_DEVELOPER,
+    wallet_id: null,
     name: "Staging Key",
     description: "Used by the staging environment for pre-release testing.",
     scopes: ["api_keys:read", "users:read"],
@@ -1107,6 +1144,7 @@ export let apiKeys: ApiKey[] = [
     key_prefix: "fr_test_g7h8i9",
     tenant_id: TENANT,
     user_id: USER_DEVELOPER,
+    wallet_id: null,
     name: "Development Key",
     description: "Local development and experimentation.",
     scopes: ["api_keys:read"],
@@ -1121,6 +1159,7 @@ export let apiKeys: ApiKey[] = [
     key_prefix: "fr_live_j1k2l3",
     tenant_id: TENANT,
     user_id: USER_ADMIN,
+    wallet_id: null,
     name: "Expired Integration Key",
     description: "Formerly used by a decommissioned third-party integration.",
     scopes: ["api_keys:read", "users:read"],
@@ -1166,4 +1205,10 @@ export let scopeDetails: ScopeDetail[] = [
   { name: "invitations:write", description: "Create invitations", category: "Invitations" },
   { name: "invitations:delete", description: "Delete invitations", category: "Invitations" },
   { name: "invitations:revoke", description: "Revoke invitations", category: "Invitations" },
+
+  { name: "wallets:*", description: "Full access to wallet management", category: "Wallets" },
+  { name: "wallets:read", description: "View wallets and balances", category: "Wallets" },
+  { name: "wallets:write", description: "Create and edit wallets", category: "Wallets" },
+  { name: "wallets:transfer", description: "Fund and withdraw wallet credits", category: "Wallets" },
+  { name: "wallets:delete", description: "Delete wallets", category: "Wallets" },
 ]

@@ -2,7 +2,6 @@ package gatewayapi
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -51,6 +50,9 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 	if err := h.checkSpendingLimit(c, tenantID); err != nil {
 		return err
 	}
+	if err := h.checkWalletBalance(c, authCtx); err != nil {
+		return err
+	}
 	if err := h.checkRateLimit(c, tenantID); err != nil {
 		return err
 	}
@@ -93,11 +95,7 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 	totalCost := perImage * float64(numImages)
 
 	// Debit billing
-	if totalCost > 0 {
-		if _, err := h.billing.DebitUsage(c.Context(), tenantID, totalCost, ""); err != nil {
-			slog.Error("image: failed to debit usage", "error", err, "tenant_id", tenantID, "cost", totalCost)
-		}
-	}
+	h.debitUsage(c.Context(), tenantID, authCtx.WalletID, totalCost)
 
 	// Record metrics
 	if h.metrics != nil {

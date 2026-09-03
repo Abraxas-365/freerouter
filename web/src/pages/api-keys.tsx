@@ -4,7 +4,7 @@ import {
   ShieldOff, ShieldCheck, Copy, Check,
 } from "lucide-react"
 import { useApi } from "@/api"
-import type { ApiKey, CreateApiKeyRequest, CreateApiKeyResponse } from "@/api/types"
+import type { ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, Wallet } from "@/api/types"
 import { PageHeader, MetricCard, StatusBadge, ConfirmDialog } from "@/components"
 import { MetricCardSkeleton } from "@/components/feedback/skeletons"
 import { Badge } from "@/components/ui/badge"
@@ -31,6 +31,7 @@ export default function ApiKeysPage() {
   const api = useApi()
 
   const [keys, setKeys] = useState<ApiKey[]>([])
+  const [wallets, setWallets] = useState<Wallet[]>([])
   const [loading, setLoading] = useState(true)
 
   // dialogs
@@ -42,8 +43,12 @@ export default function ApiKeysPage() {
   const [newKeyResult, setNewKeyResult] = useState<CreateApiKeyResponse | null>(null)
 
   async function load() {
-    const res = await api.apiKeys.list()
+    const [res, w] = await Promise.all([
+      api.apiKeys.list(),
+      api.wallets.list().catch(() => null),
+    ])
     setKeys(res.data)
+    setWallets(w?.wallets ?? [])
     setLoading(false)
   }
 
@@ -230,6 +235,7 @@ export default function ApiKeysPage() {
         open={createOpen || !!editKey}
         onOpenChange={(v) => { if (!v) { setCreateOpen(false); setEditKey(null) } }}
         apiKey={editKey}
+        wallets={wallets}
         onCreate={handleCreate}
         onUpdate={(req) => editKey && handleUpdate(editKey.id, req)}
       />
@@ -285,12 +291,14 @@ function ApiKeyFormDialog({
   open,
   onOpenChange,
   apiKey,
+  wallets,
   onCreate,
   onUpdate,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   apiKey: ApiKey | null
+  wallets: Wallet[]
   onCreate: (req: CreateApiKeyRequest) => void
   onUpdate: (req: Partial<CreateApiKeyRequest>) => void
 }) {
@@ -299,6 +307,7 @@ function ApiKeyFormDialog({
   const [scopes, setScopes] = useState("")
   const [allowedModels, setAllowedModels] = useState("")
   const [environment, setEnvironment] = useState("test")
+  const [walletId, setWalletId] = useState("none")
 
   useEffect(() => {
     if (open) {
@@ -308,12 +317,14 @@ function ApiKeyFormDialog({
         setScopes(apiKey.scopes.join(", "))
         setAllowedModels(apiKey.allowed_models.join(", "))
         setEnvironment(apiKey.key_prefix.includes("live") ? "live" : "test")
+        setWalletId(apiKey.wallet_id ?? "none")
       } else {
         setName("")
         setDescription("")
         setScopes("gateway:chat")
         setAllowedModels("")
         setEnvironment("test")
+        setWalletId("none")
       }
     }
   }, [open, apiKey])
@@ -321,9 +332,10 @@ function ApiKeyFormDialog({
   function handleSubmit() {
     const scopeList = scopes.split(",").map((s) => s.trim()).filter(Boolean)
     const modelList = allowedModels.split(",").map((m) => m.trim()).filter(Boolean)
+    const wallet_id = walletId === "none" ? "" : walletId
 
     if (apiKey) {
-      onUpdate({ name, description, scopes: scopeList, allowed_models: modelList })
+      onUpdate({ name, description, scopes: scopeList, allowed_models: modelList, wallet_id })
     } else {
       onCreate({
         name,
@@ -331,6 +343,7 @@ function ApiKeyFormDialog({
         scopes: scopeList,
         allowed_models: modelList,
         environment,
+        ...(wallet_id ? { wallet_id } : {}),
       })
     }
   }
@@ -372,6 +385,23 @@ function ApiKeyFormDialog({
           <div className="space-y-2">
             <Label className="font-mono text-xs">Allowed Models (comma-separated, empty = all)</Label>
             <Input value={allowedModels} onChange={(e) => setAllowedModels(e.target.value)} placeholder="gpt-4o, claude-sonnet-4" />
+          </div>
+          <div className="space-y-2">
+            <Label className="font-mono text-xs">Wallet (usage billed to)</Label>
+            <Select value={walletId} onValueChange={(v) => v && setWalletId(v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Main balance (no wallet)</SelectItem>
+                {wallets.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.name} (${w.balance.toFixed(2)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              When bound to a wallet, requests fail with 402 once the wallet is empty.
+            </p>
           </div>
         </div>
         <DialogFooter>

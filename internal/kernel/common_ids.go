@@ -48,6 +48,12 @@ func NewTransactionID(id string) TransactionID { return TransactionID(id) }
 func (t TransactionID) String() string         { return string(t) }
 func (t TransactionID) IsEmpty() bool          { return string(t) == "" }
 
+type WalletID string
+
+func NewWalletID(id string) WalletID { return WalletID(id) }
+func (w WalletID) String() string    { return string(w) }
+func (w WalletID) IsEmpty() bool     { return string(w) == "" }
+
 type APIKeyID string
 
 func NewAPIKeyID(id string) APIKeyID { return APIKeyID(id) }

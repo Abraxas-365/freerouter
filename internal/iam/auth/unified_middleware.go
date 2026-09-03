@@ -50,6 +50,7 @@ func (am *UnifiedAuthMiddleware) authenticateAPIKey(c *fiber.Ctx, keyString stri
 		Scopes:        key.Scopes,
 		AllowedModels: key.AllowedModels,
 		IsAPIKey:      true,
+		WalletID:      key.WalletID,
 	}
 
 	c.Locals("auth", authContext)

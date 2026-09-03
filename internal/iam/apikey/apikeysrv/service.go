@@ -13,10 +13,18 @@ import (
 	"github.com/google/uuid"
 )
 
+// WalletValidator checks that a wallet exists and belongs to the tenant.
+// Implemented by the wallet module; kept as a local interface to avoid a
+// hard IAM -> wallet dependency. Nil means wallet binding is disabled.
+type WalletValidator interface {
+	WalletExists(ctx context.Context, tenantID kernel.TenantID, walletID kernel.WalletID) error
+}
+
 type APIKeyService struct {
-	apiKeyRepo apikey.APIKeyRepository
-	tenantRepo tenant.TenantRepository
-	userRepo   user.UserRepository
+	apiKeyRepo      apikey.APIKeyRepository
+	tenantRepo      tenant.TenantRepository
+	userRepo        user.UserRepository
+	walletValidator WalletValidator
 }
 
 func NewAPIKeyService(
@@ -29,6 +37,29 @@ func NewAPIKeyService(
 		tenantRepo: tenantRepo,
 		userRepo:   userRepo,
 	}
+}
+
+// SetWalletValidator enables wallet-binding validation (called from the container).
+func (s *APIKeyService) SetWalletValidator(v WalletValidator) {
+	s.walletValidator = v
+}
+
+func (s *APIKeyService) validateWallet(ctx context.Context, tenantID kernel.TenantID, walletID *kernel.WalletID) error {
+	if walletID == nil || walletID.IsEmpty() {
+		return nil
+	}
+	if s.walletValidator == nil {
+		return errx.Validation("Wallet binding is not available").WithDetail("field", "wallet_id")
+	}
+	return s.walletValidator.WalletExists(ctx, tenantID, *walletID)
+}
+
+// normalizeWalletID maps an empty wallet ID to nil (unbound).
+func normalizeWalletID(id *kernel.WalletID) *kernel.WalletID {
+	if id == nil || id.IsEmpty() {
+		return nil
+	}
+	return id
 }
 
 func (s *APIKeyService) CreateAPIKey(
@@ -85,6 +116,7 @@ func (s *APIKeyService) CreateAPIKey(
 		KeyPrefix:     generated.KeyPrefix,
 		TenantID:      tenantID,
 		UserID:        req.UserID,
+		WalletID:      normalizeWalletID(req.WalletID),
 		Name:          req.Name,
 		Description:   req.Description,
 		Scopes:        req.Scopes,

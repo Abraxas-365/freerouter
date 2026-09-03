@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import {
   Wallet, ArrowUpCircle, ArrowDownCircle, RefreshCw, Wrench,
   Plus, TrendingDown, TrendingUp, Save, Trash2, Loader2, DollarSign,
+  ArrowRightCircle, ArrowLeftCircle,
 } from "lucide-react"
 import { useApi } from "@/api"
 import type {
@@ -36,6 +37,8 @@ const TXN_META: Record<TransactionType, { label: string; icon: typeof Wallet; co
   usage:   { label: "Usage",      icon: ArrowDownCircle, color: "text-red-400" },
   refund:  { label: "Refund",     icon: RefreshCw,       color: "text-blue-400" },
   adjust:  { label: "Adjustment", icon: Wrench,          color: "text-yellow-400" },
+  wallet_fund:     { label: "Wallet Fund",     icon: ArrowRightCircle, color: "text-purple-400" },
+  wallet_withdraw: { label: "Wallet Withdraw", icon: ArrowLeftCircle,  color: "text-purple-400" },
 }
 
 export default function BillingPage() {
@@ -473,4 +476,5 @@ function BuyCreditsDialog({
     </Dialog>
   )
 }
+
 

@@ -91,6 +91,9 @@ func (h *GatewayHandlers) AnthropicMessages(c *fiber.Ctx) error {
 	if err := h.checkSpendingLimit(c, authCtx.TenantID); err != nil {
 		return err
 	}
+	if err := h.checkWalletBalance(c, authCtx); err != nil {
+		return err
+	}
 
 	var req anthropicMessagesRequest
 	if err := json.Unmarshal(c.Body(), &req); err != nil {
@@ -133,7 +136,7 @@ func (h *GatewayHandlers) AnthropicMessages(c *fiber.Ctx) error {
 	}
 
 	if req.Stream {
-		return h.handleAnthropicStreamWithRetry(c, routes, &chatReq, requestedModel, authCtx.TenantID)
+		return h.handleAnthropicStreamWithRetry(c, routes, &chatReq, requestedModel, authCtx.TenantID, authCtx.WalletID)
 	}
 
 	// Check response cache
@@ -146,10 +149,10 @@ func (h *GatewayHandlers) AnthropicMessages(c *fiber.Ctx) error {
 		}
 	}
 
-	return h.handleAnthropicNonStreamWithRetry(c, routes, &chatReq, requestedModel, authCtx.TenantID, cacheKey)
+	return h.handleAnthropicNonStreamWithRetry(c, routes, &chatReq, requestedModel, authCtx.TenantID, authCtx.WalletID, cacheKey)
 }
 
-func (h *GatewayHandlers) handleAnthropicNonStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, cacheKey string) error {
+func (h *GatewayHandlers) handleAnthropicNonStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, walletID *kernel.WalletID, cacheKey string) error {
 	maxAttempts := gateway.MaxRetries + 1
 	if maxAttempts > len(routes) {
 		maxAttempts = len(routes)
@@ -186,11 +189,7 @@ func (h *GatewayHandlers) handleAnthropicNonStreamWithRetry(c *fiber.Ctx, routes
 		h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
 
 		cost := calculateCost(route, resp)
-		if cost > 0 {
-			if _, err := h.billing.DebitUsage(c.Context(), tenantID, cost, ""); err != nil {
-				slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
-			}
-		}
+		h.debitUsage(c.Context(), tenantID, walletID, cost)
 
 		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil, buildRequestContent(c, chatReq.Messages, resp, body))
 		h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
@@ -209,7 +208,7 @@ func (h *GatewayHandlers) handleAnthropicNonStreamWithRetry(c *fiber.Ctx, routes
 	return anthropicError(c, http.StatusBadGateway, "api_error", lastErr.Error())
 }
 
-func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID) error {
+func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, walletID *kernel.WalletID) error {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
@@ -304,11 +303,9 @@ func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []
 						resp = &gateway.ChatResponse{Usage: accumulatedUsage}
 					}
 					cost := calculateCost(route, resp)
-					if cost > 0 {
-						dCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
-						defer dc()
-						h.billing.DebitUsage(dCtx, tenantID, cost, "")
-					}
+					dCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+					defer dc()
+					h.debitUsage(dCtx, tenantID, walletID, cost)
 					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr, nil)
 					return
 				}
@@ -357,13 +354,9 @@ func (h *GatewayHandlers) handleAnthropicStreamWithRetry(c *fiber.Ctx, routes []
 			}
 
 			cost := calculateCost(route, resp)
-			if cost > 0 {
-				dCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
-				defer dc()
-				if _, err := h.billing.DebitUsage(dCtx, tenantID, cost, ""); err != nil {
-					slog.Error("failed to debit usage", "tenant_id", tenantID, "cost", cost, "error", err)
-				}
-			}
+			dCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
+			defer dc()
+			h.debitUsage(dCtx, tenantID, walletID, cost)
 
 			if h.metrics != nil {
 				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "anthropic", "ok", duration)

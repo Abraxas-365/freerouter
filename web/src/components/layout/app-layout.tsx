@@ -2,7 +2,7 @@ import { Link, useLocation } from "react-router-dom"
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Server, Box, Key, Gauge, DollarSign, BarChart3,
-  Shield, Webhook, Users, UserCog, Mail, Lock,
+  Shield, Webhook, Users, UserCog, Mail, Lock, Wallet as WalletIcon,
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
@@ -37,6 +37,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Billing & Usage",
     items: [
       { label: "Billing", icon: DollarSign, href: "/billing" },
+      { label: "Wallets", icon: WalletIcon, href: "/wallets" },
       { label: "Usage", icon: BarChart3, href: "/usage" },
     ],
   },
