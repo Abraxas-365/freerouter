@@ -43,7 +43,7 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 
 	// Record request metric
 	if h.metrics != nil {
-		h.metrics.ObserveRequest(requestedModel, "", "images", "started", 0)
+		h.metrics.ObserveRequest(requestedModel, "", gateway.ProtocolImages, gateway.StatusStarted, 0)
 	}
 
 	// Pre-flight checks
@@ -99,7 +99,7 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 
 	// Record metrics
 	if h.metrics != nil {
-		h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "images", "success", duration)
+		h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolImages, gateway.StatusSuccess, duration)
 		h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), 0, 0)
 	}
 

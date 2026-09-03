@@ -75,7 +75,7 @@ func (h *GatewayHandlers) Transcription(c *fiber.Ctx) error {
 
 	if err != nil {
 		h.healthTracker.ReportError(route.KeyID, statusCode)
-		h.logModalityRequest(tenantID, route, requestedModel, "transcription", nil, statusCode, duration, err, nil)
+		h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolTranscription, nil, statusCode, duration, err, nil)
 		return fiber.NewError(fiber.StatusBadGateway, "transcription request failed")
 	}
 	h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
@@ -88,7 +88,7 @@ func (h *GatewayHandlers) Transcription(c *fiber.Ctx) error {
 	h.debitUsage(c.Context(), tenantID, authCtx.WalletID, cost)
 
 	if h.metrics != nil {
-		h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "transcription", "ok", duration)
+		h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolTranscription, gateway.StatusOK, duration)
 	}
 
 	respMeta, _ := json.Marshal(map[string]any{
@@ -100,9 +100,9 @@ func (h *GatewayHandlers) Transcription(c *fiber.Ctx) error {
 	if content.IsDebug {
 		content.RawResponse = respBody
 	}
-	h.logModalityRequest(tenantID, route, requestedModel, "transcription", nil, http.StatusOK, duration, nil, content)
+	h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolTranscription, nil, http.StatusOK, duration, nil, content)
 
-	h.fireModalityWebhook(tenantID, requestedModel, route, "transcription", cost, duration)
+	h.fireModalityWebhook(tenantID, requestedModel, route, gateway.ProtocolTranscription, cost, duration)
 
 	c.Set("Content-Type", "application/json")
 	return c.Status(http.StatusOK).Send(respBody)
@@ -158,7 +158,7 @@ func (h *GatewayHandlers) Speech(c *fiber.Ctx) error {
 
 	if err != nil {
 		h.healthTracker.ReportError(route.KeyID, statusCode)
-		h.logModalityRequest(tenantID, route, requestedModel, "speech", nil, statusCode, duration, err, nil)
+		h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolSpeech, nil, statusCode, duration, err, nil)
 		return fiber.NewError(fiber.StatusBadGateway, "speech request failed")
 	}
 	h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
@@ -167,7 +167,7 @@ func (h *GatewayHandlers) Speech(c *fiber.Ctx) error {
 	h.debitUsage(c.Context(), tenantID, authCtx.WalletID, cost)
 
 	if h.metrics != nil {
-		h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "speech", "ok", duration)
+		h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolSpeech, gateway.StatusOK, duration)
 	}
 
 	respMeta, _ := json.Marshal(map[string]any{
@@ -177,9 +177,9 @@ func (h *GatewayHandlers) Speech(c *fiber.Ctx) error {
 		"audio_bytes": len(audio),
 	})
 	content := &usage.RequestContent{ResponseBody: respMeta, IsDebug: isDebugMode(c)}
-	h.logModalityRequest(tenantID, route, requestedModel, "speech", nil, http.StatusOK, duration, nil, content)
+	h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolSpeech, nil, http.StatusOK, duration, nil, content)
 
-	h.fireModalityWebhook(tenantID, requestedModel, route, "speech", cost, duration)
+	h.fireModalityWebhook(tenantID, requestedModel, route, gateway.ProtocolSpeech, cost, duration)
 
 	if upstreamCT == "" {
 		upstreamCT = gateway.SpeechContentType(req.ResponseFormat)
@@ -240,14 +240,14 @@ func (h *GatewayHandlers) logModalityRequest(
 	tenantID kernel.TenantID,
 	route *gateway.RouteResult,
 	requestedModel string,
-	modality string,
+	modality gateway.Protocol,
 	usageData *gateway.Usage,
 	statusCode int,
 	duration time.Duration,
 	reqErr error,
 	content *usage.RequestContent,
 ) {
-	resp := &gateway.ChatResponse{Object: modality, Usage: usageData}
+	resp := &gateway.ChatResponse{Object: string(modality), Usage: usageData}
 	h.usage.LogRequest(tenantID, route, requestedModel, resp, statusCode, duration, false, reqErr, content)
 }
 
@@ -256,7 +256,7 @@ func (h *GatewayHandlers) fireModalityWebhook(
 	tenantID kernel.TenantID,
 	requestedModel string,
 	route *gateway.RouteResult,
-	modality string,
+	modality gateway.Protocol,
 	cost float64,
 	duration time.Duration,
 ) {

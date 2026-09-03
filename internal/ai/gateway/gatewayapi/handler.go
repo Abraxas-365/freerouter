@@ -389,7 +389,7 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 
 			// Non-retryable error: fail immediately
 			if h.metrics != nil {
-				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "error", duration)
+				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusError, duration)
 				h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", statusCode))
 			}
 			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err, nil)
@@ -414,7 +414,7 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 		}
 
 		if h.metrics != nil {
-			h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "ok", duration)
+			h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusOK, duration)
 			if resp.Usage != nil {
 				h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 			}
@@ -545,7 +545,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 			h.debitUsage(debitCtx, tenantID, walletID, cost)
 
 			if h.metrics != nil {
-				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "ok", duration)
+				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusOK, duration)
 				if resp != nil && resp.Usage != nil {
 					h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 				}
