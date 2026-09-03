@@ -97,10 +97,59 @@ func (r *Router) getStrategy(ctx context.Context, tenantID *kernel.TenantID) Rou
 	return StrategyCheapest
 }
 
+// Capability identifies a modality a mapping must support to serve a request.
+type Capability string
+
+const (
+	CapabilityAudio      Capability = "audio"      // STT transcription
+	CapabilitySpeech     Capability = "speech"     // TTS synthesis
+	CapabilityModeration Capability = "moderation" // content moderation
+	CapabilityRerank     Capability = "rerank"     // document reranking
+)
+
+// hasCapability reports whether a mapping supports the given capability.
+func hasCapability(m *provider.ModelProviderMapping, cap Capability) bool {
+	switch cap {
+	case CapabilityAudio:
+		return m.Audio
+	case CapabilitySpeech:
+		return m.Speech
+	case CapabilityModeration:
+		return m.Moderation
+	case CapabilityRerank:
+		return m.Rerank
+	default:
+		return true
+	}
+}
+
+// filterByCapability returns only the mappings that support the capability.
+// An empty capability keeps all mappings.
+func filterByCapability(mappings []*provider.ModelProviderMapping, cap Capability) []*provider.ModelProviderMapping {
+	if cap == "" {
+		return mappings
+	}
+	var out []*provider.ModelProviderMapping
+	for _, m := range mappings {
+		if hasCapability(m, cap) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // Resolve finds the best provider + credential for the requested model.
 // It returns a RouteResult with all the info needed to make the upstream call.
 // maxTokens is the client's requested max output tokens (used for cost estimation).
 func (r *Router) Resolve(ctx context.Context, modelID string, tenantID *kernel.TenantID, maxTokens *int) (*RouteResult, error) {
+	return r.ResolveWithCapability(ctx, modelID, tenantID, maxTokens, "")
+}
+
+// ResolveWithCapability is Resolve restricted to mappings that support the
+// given capability (audio, speech, moderation, rerank). Requests for models
+// whose mappings lack the capability fail with a clear business error instead
+// of being proxied to an upstream that will reject them.
+func (r *Router) ResolveWithCapability(ctx context.Context, modelID string, tenantID *kernel.TenantID, maxTokens *int, capability Capability) (*RouteResult, error) {
 	// 1. Find the model
 	model, err := r.modelRepo.FindByID(ctx, kernel.NewModelID(modelID))
 	if err != nil {
@@ -126,6 +175,17 @@ func (r *Router) Resolve(ctx context.Context, modelID string, tenantID *kernel.T
 			fmt.Sprintf("no active providers for model %q", modelID),
 			errx.TypeNotFound,
 		).WithDetail("model", modelID)
+	}
+
+	// 2b. Restrict to mappings that support the requested capability
+	if capability != "" {
+		mappings = filterByCapability(mappings, capability)
+		if len(mappings) == 0 {
+			return nil, errx.New(
+				fmt.Sprintf("model %q does not support %s", modelID, capability),
+				errx.TypeBusiness,
+			).WithDetail("model", modelID).WithDetail("capability", string(capability))
+		}
 	}
 
 	// 3. Pre-check: estimate max cost from the cheapest mapping and reject if
@@ -183,14 +243,17 @@ func (r *Router) Resolve(ctx context.Context, modelID string, tenantID *kernel.T
 		}
 
 		return &RouteResult{
-			ProviderID:  prov.ID,
-			ExternalID:  mapping.ExternalID,
-			MappingID:   mapping.ID,
-			Token:       token,
-			BaseURL:     baseURL,
-			KeyID:       key.ID,
-			InputPrice:  mapping.InputPrice,
-			OutputPrice: mapping.OutputPrice,
+			ProviderID:            prov.ID,
+			ExternalID:            mapping.ExternalID,
+			MappingID:             mapping.ID,
+			Token:                 token,
+			BaseURL:               baseURL,
+			KeyID:                 key.ID,
+			InputPrice:            mapping.InputPrice,
+			OutputPrice:           mapping.OutputPrice,
+			AudioPricePerMinute:   mapping.AudioPricePerMinute,
+			SpeechPricePer1kChars: mapping.SpeechPricePer1kChars,
+			RerankPricePer1k:      mapping.RerankPricePer1k,
 		}, nil
 	}
 
@@ -362,16 +425,19 @@ func (r *Router) buildRoutesForMappings(ctx context.Context, mappings []*provide
 			}
 
 			routes = append(routes, &RouteResult{
-				ProviderID:      prov.ID,
-				ExternalID:      mapping.ExternalID,
-				MappingID:       mapping.ID,
-				Token:           token,
-				BaseURL:         baseURL,
-				KeyID:           key.ID,
-				InputPrice:      mapping.InputPrice,
-				OutputPrice:     mapping.OutputPrice,
-				IsFallback:      isFallback,
-				FallbackModelID: fallbackModelID,
+				ProviderID:            prov.ID,
+				ExternalID:            mapping.ExternalID,
+				MappingID:             mapping.ID,
+				Token:                 token,
+				BaseURL:               baseURL,
+				KeyID:                 key.ID,
+				InputPrice:            mapping.InputPrice,
+				OutputPrice:           mapping.OutputPrice,
+				AudioPricePerMinute:   mapping.AudioPricePerMinute,
+				SpeechPricePer1kChars: mapping.SpeechPricePer1kChars,
+				RerankPricePer1k:      mapping.RerankPricePer1k,
+				IsFallback:            isFallback,
+				FallbackModelID:       fallbackModelID,
 			})
 		}
 	}
@@ -542,24 +608,5 @@ func cheapestOutputPrice(mappings []*provider.ModelProviderMapping) float64 {
 
 // defaultBaseURL returns the default API base URL for known providers.
 func defaultBaseURL(providerID string) string {
-	switch providerID {
-	case "openai":
-		return "https://api.openai.com/v1"
-	case "anthropic":
-		return "https://api.anthropic.com/v1"
-	case "google":
-		return "https://generativelanguage.googleapis.com/v1beta"
-	case "mistral":
-		return "https://api.mistral.ai/v1"
-	case "groq":
-		return "https://api.groq.com/openai/v1"
-	case "together":
-		return "https://api.together.xyz/v1"
-	case "deepseek":
-		return "https://api.deepseek.com/v1"
-	case "xai":
-		return "https://api.x.ai/v1"
-	default:
-		return ""
-	}
+	return GetProfile(providerID).DefaultBaseURL
 }

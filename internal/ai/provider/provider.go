@@ -105,6 +105,11 @@ type ModelProviderMapping struct {
 	RequestPrice     *float64 `db:"request_price" json:"request_price,omitempty"`
 	ImageInputPrice  *float64 `db:"image_input_price" json:"image_input_price,omitempty"`
 
+	// Modality pricing
+	AudioPricePerMinute   *float64 `db:"audio_price_per_minute" json:"audio_price_per_minute,omitempty"`
+	SpeechPricePer1kChars *float64 `db:"speech_price_per_1k_chars" json:"speech_price_per_1k_chars,omitempty"`
+	RerankPricePer1k      *float64 `db:"rerank_price_per_1k" json:"rerank_price_per_1k,omitempty"`
+
 	// Limits
 	ContextSize *int `db:"context_size" json:"context_size,omitempty"`
 	MaxOutput   *int `db:"max_output" json:"max_output,omitempty"`
@@ -115,6 +120,10 @@ type ModelProviderMapping struct {
 	Reasoning  bool `db:"reasoning" json:"reasoning"`
 	Tools      bool `db:"tools" json:"tools"`
 	JSONOutput bool `db:"json_output" json:"json_output"`
+	Audio      bool `db:"audio" json:"audio"`
+	Speech     bool `db:"speech" json:"speech"`
+	Moderation bool `db:"moderation" json:"moderation"`
+	Rerank     bool `db:"rerank" json:"rerank"`
 
 	Region    *string        `db:"region" json:"region,omitempty"`
 	Stability ModelStability `db:"stability" json:"stability"`
@@ -194,6 +203,10 @@ type ModelProviderMappingDTO struct {
 	RequestPrice     *float64 `json:"request_price,omitempty"`
 	ImageInputPrice  *float64 `json:"image_input_price,omitempty"`
 
+	AudioPricePerMinute   *float64 `json:"audio_price_per_minute,omitempty"`
+	SpeechPricePer1kChars *float64 `json:"speech_price_per_1k_chars,omitempty"`
+	RerankPricePer1k      *float64 `json:"rerank_price_per_1k,omitempty"`
+
 	ContextSize *int `json:"context_size,omitempty"`
 	MaxOutput   *int `json:"max_output,omitempty"`
 
@@ -202,6 +215,10 @@ type ModelProviderMappingDTO struct {
 	Reasoning  bool `json:"reasoning"`
 	Tools      bool `json:"tools"`
 	JSONOutput bool `json:"json_output"`
+	Audio      bool `json:"audio"`
+	Speech     bool `json:"speech"`
+	Moderation bool `json:"moderation"`
+	Rerank     bool `json:"rerank"`
 
 	Region    *string        `json:"region,omitempty"`
 	Stability ModelStability `json:"stability"`
@@ -210,25 +227,32 @@ type ModelProviderMappingDTO struct {
 
 func (m *ModelProviderMapping) ToDTO() ModelProviderMappingDTO {
 	return ModelProviderMappingDTO{
-		ID:               m.ID,
-		ModelID:          m.ModelID,
-		ProviderID:       m.ProviderID,
-		ExternalID:       m.ExternalID,
-		InputPrice:       m.InputPrice,
-		OutputPrice:      m.OutputPrice,
-		CachedInputPrice: m.CachedInputPrice,
-		RequestPrice:     m.RequestPrice,
-		ImageInputPrice:  m.ImageInputPrice,
-		ContextSize:      m.ContextSize,
-		MaxOutput:        m.MaxOutput,
-		Streaming:        m.Streaming,
-		Vision:           m.Vision,
-		Reasoning:        m.Reasoning,
-		Tools:            m.Tools,
-		JSONOutput:       m.JSONOutput,
-		Region:           m.Region,
-		Stability:        m.Stability,
-		Status:           m.Status,
+		ID:                    m.ID,
+		ModelID:               m.ModelID,
+		ProviderID:            m.ProviderID,
+		ExternalID:            m.ExternalID,
+		InputPrice:            m.InputPrice,
+		OutputPrice:           m.OutputPrice,
+		CachedInputPrice:      m.CachedInputPrice,
+		RequestPrice:          m.RequestPrice,
+		ImageInputPrice:       m.ImageInputPrice,
+		AudioPricePerMinute:   m.AudioPricePerMinute,
+		SpeechPricePer1kChars: m.SpeechPricePer1kChars,
+		RerankPricePer1k:      m.RerankPricePer1k,
+		ContextSize:           m.ContextSize,
+		MaxOutput:             m.MaxOutput,
+		Streaming:             m.Streaming,
+		Vision:                m.Vision,
+		Reasoning:             m.Reasoning,
+		Tools:                 m.Tools,
+		JSONOutput:            m.JSONOutput,
+		Audio:                 m.Audio,
+		Speech:                m.Speech,
+		Moderation:            m.Moderation,
+		Rerank:                m.Rerank,
+		Region:                m.Region,
+		Stability:             m.Stability,
+		Status:                m.Status,
 	}
 }
 
@@ -348,6 +372,10 @@ type CreateMappingRequest struct {
 	RequestPrice     *float64 `json:"request_price,omitempty"`
 	ImageInputPrice  *float64 `json:"image_input_price,omitempty"`
 
+	AudioPricePerMinute   *float64 `json:"audio_price_per_minute,omitempty"`
+	SpeechPricePer1kChars *float64 `json:"speech_price_per_1k_chars,omitempty"`
+	RerankPricePer1k      *float64 `json:"rerank_price_per_1k,omitempty"`
+
 	ContextSize *int `json:"context_size,omitempty"`
 	MaxOutput   *int `json:"max_output,omitempty"`
 
@@ -356,6 +384,10 @@ type CreateMappingRequest struct {
 	Reasoning  bool   `json:"reasoning"`
 	Tools      bool   `json:"tools"`
 	JSONOutput bool   `json:"json_output"`
+	Audio      bool   `json:"audio"`
+	Speech     bool   `json:"speech"`
+	Moderation bool   `json:"moderation"`
+	Rerank     bool   `json:"rerank"`
 	Region     string `json:"region,omitempty"`
 }
 
@@ -374,21 +406,28 @@ func (r *CreateMappingRequest) Validate() error {
 
 // UpdateMappingRequest for updating a model-provider mapping
 type UpdateMappingRequest struct {
-	ExternalID       *string      `json:"external_id,omitempty"`
-	InputPrice       *float64     `json:"input_price,omitempty"`
-	OutputPrice      *float64     `json:"output_price,omitempty"`
-	CachedInputPrice *float64     `json:"cached_input_price,omitempty"`
-	RequestPrice     *float64     `json:"request_price,omitempty"`
-	ImageInputPrice  *float64     `json:"image_input_price,omitempty"`
-	ContextSize      *int         `json:"context_size,omitempty"`
-	MaxOutput        *int         `json:"max_output,omitempty"`
-	Streaming        *bool        `json:"streaming,omitempty"`
-	Vision           *bool        `json:"vision,omitempty"`
-	Reasoning        *bool        `json:"reasoning,omitempty"`
-	Tools            *bool        `json:"tools,omitempty"`
-	JSONOutput       *bool        `json:"json_output,omitempty"`
-	Region           *string      `json:"region,omitempty"`
-	Status           *ModelStatus `json:"status,omitempty"`
+	ExternalID            *string      `json:"external_id,omitempty"`
+	InputPrice            *float64     `json:"input_price,omitempty"`
+	OutputPrice           *float64     `json:"output_price,omitempty"`
+	CachedInputPrice      *float64     `json:"cached_input_price,omitempty"`
+	RequestPrice          *float64     `json:"request_price,omitempty"`
+	ImageInputPrice       *float64     `json:"image_input_price,omitempty"`
+	AudioPricePerMinute   *float64     `json:"audio_price_per_minute,omitempty"`
+	SpeechPricePer1kChars *float64     `json:"speech_price_per_1k_chars,omitempty"`
+	RerankPricePer1k      *float64     `json:"rerank_price_per_1k,omitempty"`
+	ContextSize           *int         `json:"context_size,omitempty"`
+	MaxOutput             *int         `json:"max_output,omitempty"`
+	Streaming             *bool        `json:"streaming,omitempty"`
+	Vision                *bool        `json:"vision,omitempty"`
+	Reasoning             *bool        `json:"reasoning,omitempty"`
+	Tools                 *bool        `json:"tools,omitempty"`
+	JSONOutput            *bool        `json:"json_output,omitempty"`
+	Audio                 *bool        `json:"audio,omitempty"`
+	Speech                *bool        `json:"speech,omitempty"`
+	Moderation            *bool        `json:"moderation,omitempty"`
+	Rerank                *bool        `json:"rerank,omitempty"`
+	Region                *string      `json:"region,omitempty"`
+	Status                *ModelStatus `json:"status,omitempty"`
 }
 
 func (r *UpdateMappingRequest) Validate() error {

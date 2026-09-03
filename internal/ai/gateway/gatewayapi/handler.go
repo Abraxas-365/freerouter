@@ -154,6 +154,10 @@ func (h *GatewayHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 	v1.Post("/responses", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Responses)
 	v1.Post("/images/generations", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.ImageGeneration)
 	v1.Post("/embeddings", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Embeddings)
+	v1.Post("/audio/transcriptions", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Transcription)
+	v1.Post("/audio/speech", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Speech)
+	v1.Post("/moderations", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Moderations)
+	v1.Post("/rerank", authMiddleware.RequireScope(scopes.ScopeGatewayChat), h.Rerank)
 	v1.Post("/cost/estimate", authMiddleware.RequireScope(scopes.ScopeGatewayRead), h.EstimateCost)
 }
 
@@ -385,7 +389,7 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 
 			// Non-retryable error: fail immediately
 			if h.metrics != nil {
-				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "error", duration)
+				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusError, duration)
 				h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", statusCode))
 			}
 			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err, nil)
@@ -410,7 +414,7 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 		}
 
 		if h.metrics != nil {
-			h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "ok", duration)
+			h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusOK, duration)
 			if resp.Usage != nil {
 				h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 			}
@@ -541,7 +545,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 			h.debitUsage(debitCtx, tenantID, walletID, cost)
 
 			if h.metrics != nil {
-				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "openai", "ok", duration)
+				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusOK, duration)
 				if resp != nil && resp.Usage != nil {
 					h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 				}

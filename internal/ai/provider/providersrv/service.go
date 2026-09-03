@@ -251,27 +251,34 @@ func (s *ProviderService) CreateMapping(ctx context.Context, req provider.Create
 	}
 
 	m := &provider.ModelProviderMapping{
-		ID:               kernel.NewMappingID(uuid.NewString()),
-		ModelID:          req.ModelID,
-		ProviderID:       req.ProviderID,
-		ExternalID:       req.ExternalID,
-		InputPrice:       req.InputPrice,
-		OutputPrice:      req.OutputPrice,
-		CachedInputPrice: req.CachedInputPrice,
-		RequestPrice:     req.RequestPrice,
-		ImageInputPrice:  req.ImageInputPrice,
-		ContextSize:      req.ContextSize,
-		MaxOutput:        req.MaxOutput,
-		Streaming:        req.Streaming,
-		Vision:           req.Vision,
-		Reasoning:        req.Reasoning,
-		Tools:            req.Tools,
-		JSONOutput:       req.JSONOutput,
-		Region:           region,
-		Stability:        provider.StabilityStable,
-		Status:           provider.ModelStatusActive,
-		CreatedAt:        time.Now().UTC(),
-		UpdatedAt:        time.Now().UTC(),
+		ID:                    kernel.NewMappingID(uuid.NewString()),
+		ModelID:               req.ModelID,
+		ProviderID:            req.ProviderID,
+		ExternalID:            req.ExternalID,
+		InputPrice:            req.InputPrice,
+		OutputPrice:           req.OutputPrice,
+		CachedInputPrice:      req.CachedInputPrice,
+		RequestPrice:          req.RequestPrice,
+		ImageInputPrice:       req.ImageInputPrice,
+		AudioPricePerMinute:   req.AudioPricePerMinute,
+		SpeechPricePer1kChars: req.SpeechPricePer1kChars,
+		RerankPricePer1k:      req.RerankPricePer1k,
+		ContextSize:           req.ContextSize,
+		MaxOutput:             req.MaxOutput,
+		Streaming:             req.Streaming,
+		Vision:                req.Vision,
+		Reasoning:             req.Reasoning,
+		Tools:                 req.Tools,
+		JSONOutput:            req.JSONOutput,
+		Audio:                 req.Audio,
+		Speech:                req.Speech,
+		Moderation:            req.Moderation,
+		Rerank:                req.Rerank,
+		Region:                region,
+		Stability:             provider.StabilityStable,
+		Status:                provider.ModelStatusActive,
+		CreatedAt:             time.Now().UTC(),
+		UpdatedAt:             time.Now().UTC(),
 	}
 
 	if err := s.mappingRepo.Save(ctx, *m); err != nil {
@@ -354,6 +361,18 @@ func (s *ProviderService) UpdateMapping(ctx context.Context, id kernel.MappingID
 	}
 	if req.JSONOutput != nil {
 		m.JSONOutput = *req.JSONOutput
+	}
+	if req.Audio != nil {
+		m.Audio = *req.Audio
+	}
+	if req.Speech != nil {
+		m.Speech = *req.Speech
+	}
+	if req.Moderation != nil {
+		m.Moderation = *req.Moderation
+	}
+	if req.Rerank != nil {
+		m.Rerank = *req.Rerank
 	}
 	if req.Region != nil {
 		m.Region = req.Region

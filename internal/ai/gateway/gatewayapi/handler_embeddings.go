@@ -80,7 +80,7 @@ func (h *GatewayHandlers) Embeddings(c *fiber.Ctx) error {
 
 	// Metrics
 	if h.metrics != nil {
-		h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "embeddings", "ok", duration)
+		h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolEmbeddings, gateway.StatusOK, duration)
 		h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), embResp.Usage.PromptTokens, 0)
 	}
 

@@ -8,6 +8,32 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+// Protocol identifies the API surface a request came through, used as a
+// metrics label and usage-log discriminator.
+type Protocol string
+
+const (
+	ProtocolOpenAI        Protocol = "openai"    // /v1/chat/completions
+	ProtocolAnthropic     Protocol = "anthropic" // /v1/messages
+	ProtocolResponses     Protocol = "responses" // /v1/responses
+	ProtocolEmbeddings    Protocol = "embeddings"
+	ProtocolImages        Protocol = "images"
+	ProtocolTranscription Protocol = "transcription"
+	ProtocolSpeech        Protocol = "speech"
+	ProtocolModeration    Protocol = "moderation"
+	ProtocolRerank        Protocol = "rerank"
+)
+
+// RequestStatus is the outcome label recorded on request metrics.
+type RequestStatus string
+
+const (
+	StatusOK      RequestStatus = "ok"
+	StatusError   RequestStatus = "error"
+	StatusSuccess RequestStatus = "success" // legacy images label
+	StatusStarted RequestStatus = "started" // legacy images label
+)
+
 // Metrics collects Prometheus metrics for the gateway.
 type Metrics struct {
 	RequestsTotal    *prometheus.CounterVec
@@ -102,9 +128,9 @@ func NewMetrics() *Metrics {
 }
 
 // ObserveRequest records metrics for a completed request.
-func (m *Metrics) ObserveRequest(model, providerID, protocol, status string, duration time.Duration) {
-	m.RequestsTotal.WithLabelValues(model, providerID, protocol, status).Inc()
-	m.RequestDuration.WithLabelValues(model, providerID, protocol).Observe(duration.Seconds())
+func (m *Metrics) ObserveRequest(model, providerID string, protocol Protocol, status RequestStatus, duration time.Duration) {
+	m.RequestsTotal.WithLabelValues(model, providerID, string(protocol), string(status)).Inc()
+	m.RequestDuration.WithLabelValues(model, providerID, string(protocol)).Observe(duration.Seconds())
 }
 
 // ObserveTokens records token usage.

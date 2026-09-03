@@ -115,16 +115,19 @@ type ChatStreamChunk struct {
 
 // RouteResult holds the resolved provider context for a request
 type RouteResult struct {
-	ProviderID      kernel.ProviderID    // e.g. "openai"
-	ExternalID      string               // Provider's model identifier (e.g. "gpt-4o-2024-08-06")
-	MappingID       kernel.MappingID     // model_provider_mapping ID
-	Token           string               // Decrypted provider API key
-	BaseURL         string               // Upstream endpoint (e.g. "https://api.openai.com/v1")
-	KeyID           kernel.ProviderKeyID // provider_key ID (for logging)
-	InputPrice      *float64
-	OutputPrice     *float64
-	IsFallback      bool   // true if this route is from a fallback model
-	FallbackModelID string // the canonical model ID used (differs from requested if fallback)
+	ProviderID            kernel.ProviderID    // e.g. "openai"
+	ExternalID            string               // Provider's model identifier (e.g. "gpt-4o-2024-08-06")
+	MappingID             kernel.MappingID     // model_provider_mapping ID
+	Token                 string               // Decrypted provider API key
+	BaseURL               string               // Upstream endpoint (e.g. "https://api.openai.com/v1")
+	KeyID                 kernel.ProviderKeyID // provider_key ID (for logging)
+	InputPrice            *float64
+	OutputPrice           *float64
+	AudioPricePerMinute   *float64 // STT: cost per minute of audio
+	SpeechPricePer1kChars *float64 // TTS: cost per 1000 input characters
+	RerankPricePer1k      *float64 // Rerank: cost per 1000 search units
+	IsFallback            bool     // true if this route is from a fallback model
+	FallbackModelID       string   // the canonical model ID used (differs from requested if fallback)
 }
 
 // RequestLog captures metadata about a completed gateway request

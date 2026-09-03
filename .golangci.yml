@@ -1,10 +1,22 @@
+version: "2"
+
 run:
   timeout: 5m
 
-issues:
-  exclude-rules:
-    # Test files: unchecked errors on helpers (json.Unmarshal, rand.Read,
-    # container teardown) fail loudly through assertions anyway.
-    - path: _test\.go
-      linters:
-        - errcheck
+linters:
+  settings:
+    staticcheck:
+      # Defaults minus QF* (stylistic quickfix suggestions added in v2);
+      # revisit in a dedicated cleanup.
+      checks: ["all", "-QF*", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022"]
+  exclusions:
+    # Restore v1-style default exclusions (e.g. errcheck on deferred Close).
+    presets:
+      - common-false-positives
+      - std-error-handling
+    rules:
+      # Test files: unchecked errors on helpers (json.Unmarshal, rand.Read,
+      # container teardown) fail loudly through assertions anyway.
+      - path: _test\.go
+        linters:
+          - errcheck

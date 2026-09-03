@@ -419,7 +419,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 			h.debitUsage(dCtx, tenantID, walletID, cost)
 
 			if h.metrics != nil {
-				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), "responses", "ok", duration)
+				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolResponses, gateway.StatusOK, duration)
 				if resp != nil && resp.Usage != nil {
 					h.metrics.ObserveTokens(requestedModel, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 				}
