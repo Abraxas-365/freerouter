@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Pre-commit: gofmt + go vet on staged Go files.
+# Installed via `make hooks` (sets core.hooksPath to .githooks).
+set -euo pipefail
+
+STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+
+if [ -z "$STAGED_GO_FILES" ]; then
+  exit 0
+fi
+
+echo "🔍 Running pre-commit checks on staged Go files..."
+
+UNFORMATTED=$(gofmt -l $STAGED_GO_FILES)
+if [ -n "$UNFORMATTED" ]; then
+  echo "❌ The following files are not gofmt'd:"
+  echo "$UNFORMATTED"
+  echo ""
+  echo "Fix with: gofmt -w $UNFORMATTED"
+  exit 1
+fi
+echo "✅ gofmt"
+
+if ! go vet ./...; then
+  echo "❌ go vet failed"
+  exit 1
+fi
+echo "✅ go vet"

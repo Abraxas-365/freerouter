@@ -140,6 +140,12 @@ tidy: ## Tidy go modules
 	go mod tidy
 	@echo "✅ Modules tidied"
 
+.PHONY: hooks
+hooks: ## Install git pre-commit hook (gofmt + go vet)
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/pre-commit
+	@echo "✅ Git hooks installed (pre-commit: gofmt, go vet)"
+
 # ============================================================================
 # Docker - All Services
 # ============================================================================
@@ -368,7 +374,7 @@ setup: up migrate seed ## Full setup (start services + migrate + seed)
 	@echo ""
 
 .PHONY: init
-init: tidy setup ## Initialize project (tidy + setup)
+init: tidy hooks setup ## Initialize project (tidy + hooks + setup)
 	@echo ""
 	@echo "✅ Project initialized!"
 	@echo ""
