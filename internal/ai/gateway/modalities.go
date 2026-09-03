@@ -16,14 +16,24 @@ type TranscriptionResponse struct {
 	Usage    *TranscriptionUsage `json:"usage,omitempty"`    // token-billed STT models
 }
 
+// TranscriptionUsageType identifies how the upstream bills a transcription
+// request. Typed for safe comparisons, but not validated on parse: unknown
+// values from newer upstream API versions must not break proxying.
+type TranscriptionUsageType string
+
+const (
+	TranscriptionUsageTokens   TranscriptionUsageType = "tokens"   // token-billed (e.g. gpt-4o-transcribe)
+	TranscriptionUsageDuration TranscriptionUsageType = "duration" // duration-billed (e.g. whisper-1)
+)
+
 // TranscriptionUsage is returned by token-billed transcription models
 // (e.g. gpt-4o-transcribe).
 type TranscriptionUsage struct {
-	Type         string  `json:"type,omitempty"` // "tokens" or "duration"
-	InputTokens  int     `json:"input_tokens,omitempty"`
-	OutputTokens int     `json:"output_tokens,omitempty"`
-	TotalTokens  int     `json:"total_tokens,omitempty"`
-	Seconds      float64 `json:"seconds,omitempty"`
+	Type         TranscriptionUsageType `json:"type,omitempty"`
+	InputTokens  int                    `json:"input_tokens,omitempty"`
+	OutputTokens int                    `json:"output_tokens,omitempty"`
+	TotalTokens  int                    `json:"total_tokens,omitempty"`
+	Seconds      float64                `json:"seconds,omitempty"`
 }
 
 // CalculateTranscriptionCost bills by audio duration when the mapping has
