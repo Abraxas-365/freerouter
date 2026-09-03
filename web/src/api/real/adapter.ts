@@ -10,7 +10,7 @@ import type {
   RoutingConfig, UpsertRoutingConfigRequest,
   CostEstimateRequest, CostEstimateResponse,
   Balance, TopUpRequest, AdjustRequest, Transaction, BillingMutationResponse,
-  CreateCheckoutRequest, CheckoutSession,
+  CreateCheckoutRequest, CheckoutSession, BillingConfig,
   SpendingLimit, UpsertSpendingLimitRequest, SpendingCheck,
   Wallet, CreateWalletRequest, UpdateWalletRequest,
   WalletTransferRequest, WalletListResponse, WalletTransferResponse,
@@ -110,6 +110,7 @@ const gatewayConfig = {
 
 const billing = {
   getBalance: () => api.get<Balance>("/api/v1/billing/balance"),
+  getConfig: () => api.get<BillingConfig>("/api/v1/billing/config"),
   topUp: (req: TopUpRequest) => api.post<BillingMutationResponse>("/api/v1/billing/top-up", req),
   adjust: (req: AdjustRequest) => api.post<BillingMutationResponse>("/api/v1/billing/adjust", req),
   listTransactions: (params?: { type?: string; from?: string; to?: string; limit?: number; offset?: number }) =>

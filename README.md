@@ -210,6 +210,17 @@ Everything is configured via environment variables. Key settings:
 
 See `internal/config/` for the full list.
 
+### Internal / self-hosted deployments (no Stripe)
+
+Stripe is optional. If `STRIPE_SECRET_KEY` is unset:
+
+- The `/webhooks/stripe` route is not registered and checkout requests return a clean error
+- The dashboard hides the "Buy credits" flow (`GET /api/v1/billing/config` reports `stripe_enabled: false`)
+- Admins grant credits directly with `POST /api/v1/billing/top-up` and `POST /api/v1/billing/adjust` (`billing:admin` scope)
+- Everything else keeps working: spending limits, wallets (per-team/env budgets), usage tracking, and metrics — useful as internal budget and chargeback tools
+
+No separate build or branch needed — it's the same binary, just without the Stripe env vars.
+
 ---
 
 ## Metrics

@@ -10,7 +10,7 @@ import { useApi } from "@/api"
 import type {
   Balance, Transaction, TransactionType,
   SpendingLimit, SpendingCheck,
-  UpsertSpendingLimitRequest,
+  UpsertSpendingLimitRequest, BillingConfig,
 } from "@/api/types"
 import { PageHeader, MetricCard } from "@/components"
 import { MetricCardSkeleton } from "@/components/feedback/skeletons"
@@ -48,6 +48,7 @@ export default function BillingPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [spendingLimit, setSpendingLimit] = useState<SpendingLimit | null>(null)
   const [spendingCheck, setSpendingCheck] = useState<SpendingCheck | null>(null)
+  const [billingConfig, setBillingConfig] = useState<BillingConfig | null>(null)
   const [loading, setLoading] = useState(true)
 
   // filters
@@ -63,16 +64,18 @@ export default function BillingPage() {
   const [slSaving, setSlSaving] = useState(false)
 
   async function load() {
-    const [bal, txns, sl, sc] = await Promise.all([
+    const [bal, txns, sl, sc, cfg] = await Promise.all([
       api.billing.getBalance(),
       api.billing.listTransactions({ limit: 50 }),
       api.billing.getSpendingLimit(TENANT_ID).catch(() => null),
       api.billing.checkSpendingLimit(TENANT_ID).catch(() => null),
+      api.billing.getConfig().catch(() => null),
     ])
     setBalance(bal)
     setTransactions(txns.data)
     setSpendingLimit(sl)
     setSpendingCheck(sc)
+    setBillingConfig(cfg)
     if (sl) {
       setDailyLimit(sl.daily_limit_usd != null ? String(sl.daily_limit_usd) : "")
       setMonthlyLimit(sl.monthly_limit_usd != null ? String(sl.monthly_limit_usd) : "")
@@ -146,6 +149,9 @@ export default function BillingPage() {
     ? transactions
     : transactions.filter((t) => t.type === typeFilter)
 
+  // Default to enabled if the config endpoint is unavailable (older backend)
+  const stripeEnabled = billingConfig?.stripe_enabled ?? true
+
   if (loading) {
     return (
       <div className="space-y-6 p-6">
@@ -161,10 +167,16 @@ export default function BillingPage() {
         title="Billing"
         description="Balance, transactions, and spending limits"
         actions={
-          <Button size="sm" onClick={() => setTopUpOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Top Up
-          </Button>
+          stripeEnabled ? (
+            <Button size="sm" onClick={() => setTopUpOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Top Up
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              Card payments disabled — credits are added by an administrator
+            </span>
+          )
         }
       />
 
@@ -381,11 +393,13 @@ export default function BillingPage() {
       </div>
 
       {/* Buy Credits Dialog */}
-      <BuyCreditsDialog
-        open={topUpOpen}
-        onOpenChange={setTopUpOpen}
-        onSubmit={handleBuyCredits}
-      />
+      {stripeEnabled && (
+        <BuyCreditsDialog
+          open={topUpOpen}
+          onOpenChange={setTopUpOpen}
+          onSubmit={handleBuyCredits}
+        />
+      )}
     </div>
   )
 }

@@ -15,7 +15,7 @@ import type {
   CostEstimateRequest, CostEstimateResponse,
   // Billing
   Balance, Transaction, TopUpRequest, AdjustRequest, BillingMutationResponse,
-  CreateCheckoutRequest, CheckoutSession,
+  CreateCheckoutRequest, CheckoutSession, BillingConfig,
   SpendingLimit, UpsertSpendingLimitRequest, SpendingCheck,
   // Wallets
   Wallet, CreateWalletRequest, UpdateWalletRequest,
@@ -128,6 +128,7 @@ export interface GatewayConfigPort {
 
 export interface BillingPort {
   getBalance(): Promise<Balance>
+  getConfig(): Promise<BillingConfig>
   topUp(req: TopUpRequest): Promise<BillingMutationResponse>
   adjust(req: AdjustRequest): Promise<BillingMutationResponse>
   listTransactions(params?: { type?: string; from?: string; to?: string; limit?: number; offset?: number }): Promise<Paginated<Transaction>>
@@ -275,3 +276,4 @@ export interface ApiPort {
   roles: RolesPort
   invitations: InvitationsPort
 }
+

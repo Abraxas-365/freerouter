@@ -350,6 +350,12 @@ export interface CheckoutSession {
   url: string
 }
 
+export interface BillingConfig {
+  stripe_enabled: boolean
+  min_topup_usd: number
+  max_topup_usd: number
+}
+
 export interface SpendingLimit {
   tenant_id: string
   daily_limit_usd: number | null

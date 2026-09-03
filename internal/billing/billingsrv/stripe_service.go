@@ -32,6 +32,15 @@ func NewStripeService(cfg config.StripeConfig, billingService *BillingService, r
 
 func (s *StripeService) Enabled() bool { return s.cfg.Enabled() }
 
+// Config reports billing feature availability for clients.
+func (s *StripeService) Config() billing.ConfigResponse {
+	return billing.ConfigResponse{
+		StripeEnabled: s.cfg.Enabled(),
+		MinTopUpUSD:   s.cfg.MinTopUpUSD,
+		MaxTopUpUSD:   s.cfg.MaxTopUpUSD,
+	}
+}
+
 // CreateCheckoutSession creates a Stripe Checkout session for buying credits.
 func (s *StripeService) CreateCheckoutSession(ctx context.Context, tenantID kernel.TenantID, userEmail string, req billing.CreateCheckoutRequest) (*billing.CheckoutSessionResponse, error) {
 	if !s.Enabled() {

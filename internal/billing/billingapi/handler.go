@@ -24,6 +24,7 @@ func (h *BillingHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 	b := router.Group("/billing", authMiddleware.Authenticate())
 
 	b.Get("/balance", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.GetBalance)
+	b.Get("/config", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.GetConfig)
 	b.Post("/top-up", authMiddleware.RequireScope(scopes.ScopeBillingAdmin), h.TopUp)
 	b.Post("/adjust", authMiddleware.RequireScope(scopes.ScopeBillingAdmin), h.Adjust)
 	b.Get("/transactions", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.ListTransactions)
@@ -39,8 +40,18 @@ func (h *BillingHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 
 // RegisterPublicRoutes mounts routes that must NOT go through auth middleware
 // (Stripe signs its webhook requests; signature is verified in the service).
+// No-op when Stripe is not configured, keeping the surface minimal.
 func (h *BillingHandlers) RegisterPublicRoutes(app fiber.Router) {
+	if !h.stripe.Enabled() {
+		return
+	}
 	app.Post("/webhooks/stripe", h.StripeWebhook)
+}
+
+// GetConfig reports billing feature availability (e.g. whether Stripe
+// checkout is configured) so the UI can adapt.
+func (h *BillingHandlers) GetConfig(c *fiber.Ctx) error {
+	return c.JSON(h.stripe.Config())
 }
 
 func (h *BillingHandlers) GetBalance(c *fiber.Ctx) error {

@@ -141,6 +141,14 @@ type CheckoutSessionResponse struct {
 	URL       string `json:"url"` // Redirect the user here to pay
 }
 
+// ConfigResponse tells clients which billing features are available so the
+// UI can adapt (e.g. hide the Stripe checkout flow on internal deployments).
+type ConfigResponse struct {
+	StripeEnabled bool    `json:"stripe_enabled"`
+	MinTopUpUSD   float64 `json:"min_topup_usd"`
+	MaxTopUpUSD   float64 `json:"max_topup_usd"`
+}
+
 // ============================================================================
 // Response types
 // ============================================================================

@@ -478,6 +478,10 @@ export const billingPort: BillingPort = {
     const limit = params?.limit ?? total
     return { data: filtered.slice(offset, offset + limit), total }
   },
+  async getConfig() {
+    await delay()
+    return { stripe_enabled: true, min_topup_usd: 5, max_topup_usd: 10000 }
+  },
   async createCheckout(req) {
     await delay()
     // Mock: simulate an instant successful purchase, then "redirect" back

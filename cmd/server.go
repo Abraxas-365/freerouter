@@ -148,9 +148,14 @@ func registerRoutes(app *fiber.App, container *Container) {
 	container.IAM.PasswordlessHandlers.RegisterRoutes(app)
 	logx.Info("  > Passwordless auth routes registered")
 
-	// Stripe webhook (public — Stripe signs requests, verified in handler)
+	// Stripe webhook (public — Stripe signs requests, verified in handler).
+	// Not registered when Stripe is disabled (internal deployments).
 	container.Billing.Handlers.RegisterPublicRoutes(app)
-	logx.Info("  > Stripe webhook route registered")
+	if container.Billing.Stripe.Enabled() {
+		logx.Info("  > Stripe webhook route registered")
+	} else {
+		logx.Info("  > Stripe disabled — webhook route skipped")
+	}
 
 	// manifesto:public-routes
 
