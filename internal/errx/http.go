@@ -29,7 +29,8 @@ func (e *Error) ToHTTPResponse() HTTPErrorResponse {
 func (e *Error) WriteHTTP(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(e.HTTPStatus)
-	json.NewEncoder(w).Encode(e.ToHTTPResponse())
+	// Headers are already sent; nothing useful to do if encoding fails.
+	_ = json.NewEncoder(w).Encode(e.ToHTTPResponse())
 }
 
 // HandleError is a helper to write errors to HTTP responses

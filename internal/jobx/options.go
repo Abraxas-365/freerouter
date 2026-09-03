@@ -4,21 +4,21 @@ import "time"
 
 // WorkerOptions configures the job processing client.
 type WorkerOptions struct {
-	Queues           []string
-	Concurrency      int
-	PollInterval     time.Duration
-	ShutdownTimeout  time.Duration
-	DequeueTimeout   time.Duration
+	Queues            []string
+	Concurrency       int
+	PollInterval      time.Duration
+	ShutdownTimeout   time.Duration
+	DequeueTimeout    time.Duration
 	DefaultRetryDelay time.Duration
 }
 
 func defaultWorkerOptions() WorkerOptions {
 	return WorkerOptions{
-		Queues:           []string{"default"},
-		Concurrency:      4,
-		PollInterval:     time.Second,
-		ShutdownTimeout:  30 * time.Second,
-		DequeueTimeout:   5 * time.Second,
+		Queues:            []string{"default"},
+		Concurrency:       4,
+		PollInterval:      time.Second,
+		ShutdownTimeout:   30 * time.Second,
+		DequeueTimeout:    5 * time.Second,
 		DefaultRetryDelay: 30 * time.Second,
 	}
 }

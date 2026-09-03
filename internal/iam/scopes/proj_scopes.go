@@ -171,4 +171,3 @@ var DomainScopeDescriptions = map[string]string{
 	ScopeWebhooksRead:  "View webhooks and deliveries",
 	ScopeWebhooksWrite: "Create, edit, and delete webhooks",
 }
-

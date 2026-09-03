@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Abraxas-365/freerouter/internal/billing"
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey"
+	"github.com/Abraxas-365/freerouter/internal/billing"
 	"github.com/Abraxas-365/freerouter/internal/errx"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 )
@@ -23,9 +23,9 @@ type Router struct {
 	encryptor     providerkey.TokenEncryptor
 	billingRepo   billing.BillingRepository
 	healthTracker *KeyHealthTracker
-	fallbackRepo  provider.FallbackRepository       // nil = no model fallback
-	routingRepo   RoutingConfigRepository            // nil = always use cheapest
-	strategyCache sync.Map                           // tenantID -> *cachedStrategy
+	fallbackRepo  provider.FallbackRepository // nil = no model fallback
+	routingRepo   RoutingConfigRepository     // nil = always use cheapest
+	strategyCache sync.Map                    // tenantID -> *cachedStrategy
 }
 
 const strategyCacheTTL = 30 * time.Second
@@ -302,12 +302,12 @@ func (r *Router) ResolveAll(ctx context.Context, modelID string, tenantID *kerne
 
 // ModelPricing holds pricing info for a model from its cheapest mapping.
 type ModelPricing struct {
-	ModelID      string   `json:"model_id"`
-	ProviderID   string   `json:"provider_id"`
-	InputPrice   *float64 `json:"input_price_per_million,omitempty"`
-	OutputPrice  *float64 `json:"output_price_per_million,omitempty"`
-	ContextSize  *int     `json:"context_size,omitempty"`
-	MaxOutput    *int     `json:"max_output,omitempty"`
+	ModelID     string   `json:"model_id"`
+	ProviderID  string   `json:"provider_id"`
+	InputPrice  *float64 `json:"input_price_per_million,omitempty"`
+	OutputPrice *float64 `json:"output_price_per_million,omitempty"`
+	ContextSize *int     `json:"context_size,omitempty"`
+	MaxOutput   *int     `json:"max_output,omitempty"`
 }
 
 // GetPricing looks up the cheapest pricing for a model without resolving credentials.

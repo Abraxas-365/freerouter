@@ -109,7 +109,7 @@ func (r *PostgresWalletRepository) Fund(ctx context.Context, tenantID kernel.Ten
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to begin transaction", errx.TypeInternal)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // rollback after commit is a no-op
 
 	now := time.Now().UTC()
 
@@ -158,7 +158,7 @@ func (r *PostgresWalletRepository) Withdraw(ctx context.Context, tenantID kernel
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to begin transaction", errx.TypeInternal)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // rollback after commit is a no-op
 
 	now := time.Now().UTC()
 
@@ -211,7 +211,7 @@ func (r *PostgresWalletRepository) DebitUsage(ctx context.Context, tenantID kern
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to begin transaction", errx.TypeInternal)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // rollback after commit is a no-op
 
 	now := time.Now().UTC()
 

@@ -224,7 +224,6 @@ func New(deps Deps) *Container {
 
 	// ── Middleware ────────────────────────────────────────────────────────
 
-
 	c.UnifiedAuthMiddleware = auth.NewAPIKeyMiddleware(c.APIKeyService, c.TokenService)
 
 	// ── Background services ──────────────────────────────────────────────

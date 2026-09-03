@@ -86,7 +86,7 @@ type ChatResponse struct {
 type Choice struct {
 	Index        int      `json:"index"`
 	Message      *Message `json:"message,omitempty"`       // Non-streaming
-	Delta        *Message `json:"delta,omitempty"`          // Streaming
+	Delta        *Message `json:"delta,omitempty"`         // Streaming
 	FinishReason *string  `json:"finish_reason,omitempty"` // stop, tool_calls, length, content_filter
 }
 
@@ -158,15 +158,15 @@ type CostEstimateRequest struct {
 
 // CostEstimateResponse is the result of a cost estimation.
 type CostEstimateResponse struct {
-	Model                string   `json:"model"`
-	Provider             string   `json:"provider"`
-	EstimatedInputTokens int      `json:"estimated_input_tokens"`
-	MaxOutputTokens      int      `json:"max_output_tokens"`
-	InputPricePerMillion *float64 `json:"input_price_per_million,omitempty"`
+	Model                 string   `json:"model"`
+	Provider              string   `json:"provider"`
+	EstimatedInputTokens  int      `json:"estimated_input_tokens"`
+	MaxOutputTokens       int      `json:"max_output_tokens"`
+	InputPricePerMillion  *float64 `json:"input_price_per_million,omitempty"`
 	OutputPricePerMillion *float64 `json:"output_price_per_million,omitempty"`
-	EstimatedInputCost   float64  `json:"estimated_input_cost_usd"`
-	EstimatedOutputCost  float64  `json:"estimated_output_cost_usd"`
-	EstimatedTotalCost   float64  `json:"estimated_total_cost_usd"`
+	EstimatedInputCost    float64  `json:"estimated_input_cost_usd"`
+	EstimatedOutputCost   float64  `json:"estimated_output_cost_usd"`
+	EstimatedTotalCost    float64  `json:"estimated_total_cost_usd"`
 }
 
 // EstimateTokens approximates token count from text.

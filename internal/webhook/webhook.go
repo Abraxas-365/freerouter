@@ -15,12 +15,12 @@ import (
 type WebhookConfig struct {
 	ID        kernel.WebhookID `db:"id" json:"id"`
 	TenantID  kernel.TenantID  `db:"tenant_id" json:"tenant_id"`
-	URL       string          `db:"url" json:"url"`
-	Secret    string          `db:"secret" json:"-"` // never exposed in API
-	Events    []string        `db:"events" json:"events"`
-	Enabled   bool            `db:"enabled" json:"enabled"`
-	CreatedAt time.Time       `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time       `db:"updated_at" json:"updated_at"`
+	URL       string           `db:"url" json:"url"`
+	Secret    string           `db:"secret" json:"-"` // never exposed in API
+	Events    []string         `db:"events" json:"events"`
+	Enabled   bool             `db:"enabled" json:"enabled"`
+	CreatedAt time.Time        `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time        `db:"updated_at" json:"updated_at"`
 }
 
 // CreateWebhookRequest is the DTO for creating a webhook.
@@ -38,7 +38,7 @@ func (r *CreateWebhookRequest) Validate() error {
 	}
 	for _, e := range r.Events {
 		if !IsValidEvent(e) {
-			return errx.Validation("invalid event type: " + e).WithDetail("field", "events")
+			return errx.Validation("invalid event type: "+e).WithDetail("field", "events")
 		}
 	}
 	return nil
@@ -66,15 +66,15 @@ const (
 type WebhookDelivery struct {
 	ID          kernel.WebhookDeliveryID `db:"id" json:"id"`
 	WebhookID   kernel.WebhookID         `db:"webhook_id" json:"webhook_id"`
-	EventType   string         `db:"event_type" json:"event_type"`
-	Payload     string         `db:"payload" json:"payload"`
-	Status      DeliveryStatus `db:"status" json:"status"`
-	StatusCode  *int           `db:"status_code" json:"status_code,omitempty"`
-	Attempts    int            `db:"attempts" json:"attempts"`
-	LastError   *string        `db:"last_error" json:"last_error,omitempty"`
-	NextRetryAt *time.Time     `db:"next_retry_at" json:"next_retry_at,omitempty"`
-	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
-	CompletedAt *time.Time     `db:"completed_at" json:"completed_at,omitempty"`
+	EventType   string                   `db:"event_type" json:"event_type"`
+	Payload     string                   `db:"payload" json:"payload"`
+	Status      DeliveryStatus           `db:"status" json:"status"`
+	StatusCode  *int                     `db:"status_code" json:"status_code,omitempty"`
+	Attempts    int                      `db:"attempts" json:"attempts"`
+	LastError   *string                  `db:"last_error" json:"last_error,omitempty"`
+	NextRetryAt *time.Time               `db:"next_retry_at" json:"next_retry_at,omitempty"`
+	CreatedAt   time.Time                `db:"created_at" json:"created_at"`
+	CompletedAt *time.Time               `db:"completed_at" json:"completed_at,omitempty"`
 }
 
 // ============================================================================

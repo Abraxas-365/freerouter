@@ -1,8 +1,6 @@
 package gatewaycontainer
 
 import (
-	"github.com/Abraxas-365/freerouter/internal/billing"
-	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway"
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway/gatewayapi"
 	"github.com/Abraxas-365/freerouter/internal/ai/gateway/gatewayinfra"
@@ -10,6 +8,8 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/ai/provider"
 	"github.com/Abraxas-365/freerouter/internal/ai/providerkey"
 	"github.com/Abraxas-365/freerouter/internal/ai/usage/usagesrv"
+	"github.com/Abraxas-365/freerouter/internal/billing"
+	"github.com/Abraxas-365/freerouter/internal/billing/billingsrv"
 	"github.com/jmoiron/sqlx"
 	"github.com/redis/go-redis/v9"
 )

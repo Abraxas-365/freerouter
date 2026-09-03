@@ -26,9 +26,9 @@ type EmbeddingResponse struct {
 
 // EmbeddingData holds a single embedding vector.
 type EmbeddingData struct {
-	Object    string    `json:"object"` // "embedding"
-	Embedding any       `json:"embedding"`
-	Index     int       `json:"index"`
+	Object    string `json:"object"` // "embedding"
+	Embedding any    `json:"embedding"`
+	Index     int    `json:"index"`
 }
 
 // EmbeddingUsage holds token usage for the embedding request.

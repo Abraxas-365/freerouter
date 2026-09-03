@@ -1,0 +1,10 @@
+run:
+  timeout: 5m
+
+issues:
+  exclude-rules:
+    # Test files: unchecked errors on helpers (json.Unmarshal, rand.Read,
+    # container teardown) fail loudly through assertions anyway.
+    - path: _test\.go
+      linters:
+        - errcheck

@@ -16,9 +16,9 @@ func TestCheckPII_SSN(t *testing.T) {
 	}{
 		{"My SSN is 123-45-6789", true},
 		{"SSN: 078-05-1120", true},
-		{"Invalid SSN: 000-45-6789", false},  // area 000 invalid
-		{"Invalid SSN: 666-45-6789", false},  // area 666 invalid
-		{"Not an SSN: 123456789", false},      // no dashes
+		{"Invalid SSN: 000-45-6789", false}, // area 000 invalid
+		{"Invalid SSN: 666-45-6789", false}, // area 666 invalid
+		{"Not an SSN: 123456789", false},    // no dashes
 		{"Random text with no SSN", false},
 	}
 

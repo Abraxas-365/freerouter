@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	DefaultCacheTTL  = 60 * time.Second
-	CacheKeyPrefix   = "cache:resp:"
+	DefaultCacheTTL = 60 * time.Second
+	CacheKeyPrefix  = "cache:resp:"
 )
 
 // ResponseCache provides Redis-backed response caching for non-streaming requests.

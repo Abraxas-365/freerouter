@@ -247,7 +247,7 @@ func (s *ProviderKeyService) TestKey(ctx context.Context, id kernel.ProviderKeyI
 		StatusCode: resp.StatusCode,
 		Message:    msg,
 		LatencyMs:  latency,
-		}, nil
+	}, nil
 }
 
 // buildTestRequest creates a lightweight request to validate an API key.

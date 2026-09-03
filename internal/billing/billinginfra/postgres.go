@@ -42,7 +42,7 @@ func (r *PostgresBillingRepository) Credit(ctx context.Context, tenantID kernel.
 	if err != nil {
 		return nil, nil, errx.Wrap(err, "failed to begin transaction", errx.TypeInternal)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // rollback after commit is a no-op
 
 	// Upsert balance with row lock
 	upsertQuery := `
@@ -86,7 +86,7 @@ func (r *PostgresBillingRepository) Debit(ctx context.Context, tenantID kernel.T
 	if err != nil {
 		return nil, nil, errx.Wrap(err, "failed to begin transaction", errx.TypeInternal)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // rollback after commit is a no-op
 
 	// Lock and debit atomically — allows negative balance so usage is always
 	// recorded. The next request will be rejected by the pre-check in the router.

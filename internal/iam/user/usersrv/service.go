@@ -167,7 +167,7 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 	}
 
 	// Update scopes if provided
-	if req.Scopes != nil && len(req.Scopes) > 0 {
+	if len(req.Scopes) > 0 {
 		if err := s.validateScopes(req.Scopes); err != nil {
 			return nil, err
 		}
@@ -318,7 +318,6 @@ func (s *UserService) GetUserScopes(ctx context.Context, userID kernel.UserID, t
 		Scopes:       userEntity.Scopes,
 		ScopeDetails: scopeDetails,
 		TotalScopes:  len(userEntity.Scopes),
-
 	}, nil
 }
 

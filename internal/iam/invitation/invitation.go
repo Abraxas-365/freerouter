@@ -308,7 +308,7 @@ var (
 	CodeInvitationAlreadyRevoked  = ErrRegistry.Register("ALREADY_REVOKED", errx.TypeBusiness, http.StatusConflict, "Invitation already revoked")
 	CodeInvitationAlreadyExists   = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "A pending invitation already exists for this email")
 	CodeUserAlreadyExists         = ErrRegistry.Register("USER_ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "User already exists in this tenant")
-	CodeInvalidScopes = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
+	CodeInvalidScopes             = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
 )
 
 // Helper functions

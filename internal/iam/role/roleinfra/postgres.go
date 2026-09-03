@@ -117,7 +117,7 @@ func (r *PostgresRoleRepository) Delete(ctx context.Context, id string, tenantID
 	if err != nil {
 		return errx.Wrap(err, "failed to begin transaction", errx.TypeInternal)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // rollback after commit is a no-op
 
 	_, err = tx.ExecContext(ctx, `DELETE FROM user_roles WHERE role_id = $1 AND tenant_id = $2`, id, tenantID.String())
 	if err != nil {

@@ -32,11 +32,11 @@ type SystemRuleConfig struct {
 }
 
 type SystemRulesConfig struct {
-	PromptInjection  SystemRuleConfig `json:"prompt_injection"`
-	Jailbreak        SystemRuleConfig `json:"jailbreak"`
-	PIIDetection     SystemRuleConfig `json:"pii_detection"`
-	Secrets          SystemRuleConfig `json:"secrets"`
-	DocumentLeakage  SystemRuleConfig `json:"document_leakage"`
+	PromptInjection SystemRuleConfig `json:"prompt_injection"`
+	Jailbreak       SystemRuleConfig `json:"jailbreak"`
+	PIIDetection    SystemRuleConfig `json:"pii_detection"`
+	Secrets         SystemRuleConfig `json:"secrets"`
+	DocumentLeakage SystemRuleConfig `json:"document_leakage"`
 }
 
 func DefaultSystemRulesConfig() SystemRulesConfig {
@@ -64,7 +64,7 @@ type GuardrailConfig struct {
 
 func (c *GuardrailConfig) ParseSystemRules() (SystemRulesConfig, error) {
 	var cfg SystemRulesConfig
-	if c.SystemRules == nil || len(c.SystemRules) == 0 {
+	if len(c.SystemRules) == 0 {
 		return DefaultSystemRulesConfig(), nil
 	}
 	if err := json.Unmarshal(c.SystemRules, &cfg); err != nil {
@@ -182,7 +182,7 @@ func (r *CreateRuleRequest) Validate() error {
 	default:
 		return errx.Validation("action must be block, redact, or warn").WithDetail("field", "action")
 	}
-	if r.Config == nil || len(r.Config) == 0 {
+	if len(r.Config) == 0 {
 		return errx.Validation("config is required").WithDetail("field", "config")
 	}
 	return nil
@@ -203,9 +203,9 @@ type UpdateRuleRequest struct {
 var ErrRegistry = errx.NewRegistry("GUARDRAIL")
 
 var (
-	CodeConfigNotFound    = ErrRegistry.Register("CONFIG_NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Guardrail config not found")
-	CodeRuleNotFound      = ErrRegistry.Register("RULE_NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Guardrail rule not found")
-	CodeContentBlocked    = ErrRegistry.Register("CONTENT_BLOCKED", errx.TypeBusiness, http.StatusBadRequest, "Request blocked by content policy")
+	CodeConfigNotFound = ErrRegistry.Register("CONFIG_NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Guardrail config not found")
+	CodeRuleNotFound   = ErrRegistry.Register("RULE_NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Guardrail rule not found")
+	CodeContentBlocked = ErrRegistry.Register("CONTENT_BLOCKED", errx.TypeBusiness, http.StatusBadRequest, "Request blocked by content policy")
 )
 
 func ErrConfigNotFound() *errx.Error { return ErrRegistry.New(CodeConfigNotFound) }

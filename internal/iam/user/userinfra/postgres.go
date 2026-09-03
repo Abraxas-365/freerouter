@@ -68,31 +68,6 @@ func (db *userDB) toDomain() (*user.User, error) {
 	return u, nil
 }
 
-// fromDomain converts domain model to database model
-func fromDomain(u *user.User) *userDB {
-	db := &userDB{
-		ID:              u.ID.String(),
-		TenantID:        u.TenantID.String(),
-		Email:           u.Email,
-		Name:            u.Name,
-		Picture:         u.Picture,
-		Status:          string(u.Status),
-		Scopes:          pq.StringArray(u.Scopes),
-		OAuthProvider:   string(u.OAuthProvider),
-		OAuthProviderID: u.OAuthProviderID,
-		EmailVerified:   u.EmailVerified,
-		OTPEnabled:      u.OTPEnabled,
-		CreatedAt:       u.CreatedAt,
-		UpdatedAt:       u.UpdatedAt,
-	}
-
-	if u.LastLoginAt != nil {
-		db.LastLoginAt = sql.NullTime{Time: *u.LastLoginAt, Valid: true}
-	}
-
-	return db
-}
-
 // FindByID finds a user by ID and tenant
 func (r *PostgresUserRepository) FindByID(ctx context.Context, id kernel.UserID, tenantID kernel.TenantID) (*user.User, error) {
 	query := `
@@ -369,5 +344,3 @@ func (r *PostgresUserRepository) userExists(ctx context.Context, id kernel.UserI
 
 	return exists, nil
 }
-
-

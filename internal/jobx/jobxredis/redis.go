@@ -23,7 +23,7 @@ func NewRedisQueue(rdb *redis.Client) *RedisQueue {
 }
 
 // Key helpers
-func queueKey(name string) string    { return fmt.Sprintf("jobx:queue:%s", name) }
+func queueKey(name string) string     { return fmt.Sprintf("jobx:queue:%s", name) }
 func scheduledKey(name string) string { return fmt.Sprintf("jobx:scheduled:%s", name) }
 func jobKey(id string) string         { return fmt.Sprintf("jobx:job:%s", id) }
 

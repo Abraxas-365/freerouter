@@ -21,10 +21,10 @@ type GoogleTranslator struct{}
 // ---------- Request types (Gemini native) ----------
 
 type geminiRequest struct {
-	Contents         []geminiContent    `json:"contents"`
-	SystemInstruction *geminiContent    `json:"systemInstruction,omitempty"`
-	GenerationConfig *geminiGenConfig   `json:"generationConfig,omitempty"`
-	Tools            []geminiTool       `json:"tools,omitempty"`
+	Contents          []geminiContent  `json:"contents"`
+	SystemInstruction *geminiContent   `json:"systemInstruction,omitempty"`
+	GenerationConfig  *geminiGenConfig `json:"generationConfig,omitempty"`
+	Tools             []geminiTool     `json:"tools,omitempty"`
 }
 
 type geminiContent struct {
@@ -75,15 +75,15 @@ type geminiResponse struct {
 }
 
 type geminiCandidate struct {
-	Content       *geminiContent `json:"content,omitempty"`
-	FinishReason  string         `json:"finishReason,omitempty"`
-	Index         int            `json:"index"`
+	Content      *geminiContent `json:"content,omitempty"`
+	FinishReason string         `json:"finishReason,omitempty"`
+	Index        int            `json:"index"`
 }
 
 type geminiUsage struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
 	CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"`
 }
 

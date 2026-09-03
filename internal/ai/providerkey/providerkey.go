@@ -165,5 +165,5 @@ var (
 	CodeKeyAlreadyExists = ErrRegistry.Register("KEY_ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "Provider key already exists")
 )
 
-func ErrKeyNotFound() *errx.Error     { return ErrRegistry.New(CodeKeyNotFound) }
+func ErrKeyNotFound() *errx.Error      { return ErrRegistry.New(CodeKeyNotFound) }
 func ErrKeyAlreadyExists() *errx.Error { return ErrRegistry.New(CodeKeyAlreadyExists) }

@@ -69,8 +69,8 @@ func (g GuardrailConfigID) IsEmpty() bool              { return string(g) == "" 
 type GuardrailRuleID string
 
 func NewGuardrailRuleID(id string) GuardrailRuleID { return GuardrailRuleID(id) }
-func (g GuardrailRuleID) String() string            { return string(g) }
-func (g GuardrailRuleID) IsEmpty() bool             { return string(g) == "" }
+func (g GuardrailRuleID) String() string           { return string(g) }
+func (g GuardrailRuleID) IsEmpty() bool            { return string(g) == "" }
 
 type GuardrailViolationID string
 

@@ -22,11 +22,3 @@ func WithConfigID(id string) Option {
 		o.ConfigID = id
 	}
 }
-
-func applySendOptions(opts []Option) SendOptions {
-	var so SendOptions
-	for _, o := range opts {
-		o(&so)
-	}
-	return so
-}

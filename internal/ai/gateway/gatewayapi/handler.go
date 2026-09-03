@@ -449,7 +449,6 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 
 		var lastErr error
 		var lastStatus int
-		var successRoute *gateway.RouteResult
 
 		for attempt := 0; attempt < maxAttempts; attempt++ {
 			route := routes[attempt]
@@ -527,7 +526,6 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 
 			// Success
 			h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
-			successRoute = route
 
 			var resp *gateway.ChatResponse
 			if lastChunk.Usage != nil {
@@ -554,14 +552,12 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 			return
 		}
 
-		// All attempts exhausted
-		if successRoute == nil {
-			errJSON, _ := json.Marshal(fiber.Map{"error": fmt.Sprintf("all %d stream attempts failed: %v", maxAttempts, lastErr)})
-			fmt.Fprintf(w, "data: %s\n\n", errJSON)
-			w.Flush()
-			h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr, nil)
-			h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
-		}
+		// All attempts exhausted (the success path returns inside the loop)
+		errJSON, _ := json.Marshal(fiber.Map{"error": fmt.Sprintf("all %d stream attempts failed: %v", maxAttempts, lastErr)})
+		fmt.Fprintf(w, "data: %s\n\n", errJSON)
+		w.Flush()
+		h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr, nil)
+		h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	})
 
 	return nil
@@ -838,13 +834,6 @@ func (h *GatewayHandlers) DeleteRoutingConfig(c *fiber.Ctx) error {
 	h.router.InvalidateStrategyCache(tenantID.String())
 
 	return c.JSON(fiber.Map{"message": "Routing config deleted, tenant will use default (cheapest)"})
-}
-
-// fireWebhook fires a webhook event if webhooks are configured.
-func (h *GatewayHandlers) fireWebhook(tenantID kernel.TenantID, event string, data any) {
-	if h.webhooks != nil {
-		h.webhooks.Fire(tenantID, event, data)
-	}
 }
 
 // fireRequestWebhook fires request.completed or request.failed events.

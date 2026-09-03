@@ -286,7 +286,6 @@ func (r *PostgresUsageRepository) GetSummary(ctx context.Context, tenantID kerne
 	if to != nil {
 		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argIdx))
 		args = append(args, *to)
-		argIdx++
 	}
 
 	where := "WHERE " + strings.Join(conditions, " AND ")
@@ -326,7 +325,6 @@ func (r *PostgresUsageRepository) GetSummaryByModel(ctx context.Context, tenantI
 	if to != nil {
 		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argIdx))
 		args = append(args, *to)
-		argIdx++
 	}
 
 	where := "WHERE " + strings.Join(conditions, " AND ")

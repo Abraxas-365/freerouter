@@ -25,13 +25,13 @@ const (
 // Provider represents an LLM provider (e.g. OpenAI, Anthropic, Google)
 type Provider struct {
 	ID          kernel.ProviderID `db:"id" json:"id"`
-	Name        string         `db:"name" json:"name"`
-	Description string         `db:"description" json:"description"`
-	Website     string         `db:"website" json:"website,omitempty"`
-	Status      ProviderStatus `db:"status" json:"status"`
-	Streaming   bool           `db:"streaming" json:"streaming"`
-	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time      `db:"updated_at" json:"updated_at"`
+	Name        string            `db:"name" json:"name"`
+	Description string            `db:"description" json:"description"`
+	Website     string            `db:"website" json:"website,omitempty"`
+	Status      ProviderStatus    `db:"status" json:"status"`
+	Streaming   bool              `db:"streaming" json:"streaming"`
+	CreatedAt   time.Time         `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time         `db:"updated_at" json:"updated_at"`
 }
 
 func (p *Provider) IsActive() bool {
@@ -96,7 +96,7 @@ type ModelProviderMapping struct {
 	ID         kernel.MappingID  `db:"id" json:"id"`
 	ModelID    kernel.ModelID    `db:"model_id" json:"model_id"`
 	ProviderID kernel.ProviderID `db:"provider_id" json:"provider_id"`
-	ExternalID string `db:"external_id" json:"external_id"` // Provider's model identifier
+	ExternalID string            `db:"external_id" json:"external_id"` // Provider's model identifier
 
 	// Pricing (per million tokens)
 	InputPrice       *float64 `db:"input_price" json:"input_price,omitempty"`
@@ -134,12 +134,12 @@ func (m *ModelProviderMapping) IsActive() bool {
 // ProviderDTO is the external representation of a provider
 type ProviderDTO struct {
 	ID          kernel.ProviderID `json:"id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Website     string         `json:"website,omitempty"`
-	Status      ProviderStatus `json:"status"`
-	Streaming   bool           `json:"streaming"`
-	CreatedAt   time.Time      `json:"created_at"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Website     string            `json:"website,omitempty"`
+	Status      ProviderStatus    `json:"status"`
+	Streaming   bool              `json:"streaming"`
+	CreatedAt   time.Time         `json:"created_at"`
 }
 
 func (p *Provider) ToDTO() ProviderDTO {
@@ -186,7 +186,7 @@ type ModelProviderMappingDTO struct {
 	ID         kernel.MappingID  `json:"id"`
 	ModelID    kernel.ModelID    `json:"model_id"`
 	ProviderID kernel.ProviderID `json:"provider_id"`
-	ExternalID string `json:"external_id"`
+	ExternalID string            `json:"external_id"`
 
 	InputPrice       *float64 `json:"input_price,omitempty"`
 	OutputPrice      *float64 `json:"output_price,omitempty"`
@@ -306,12 +306,12 @@ func (r *CreateModelRequest) Validate() error {
 
 // UpdateModelRequest for updating a model
 type UpdateModelRequest struct {
-	Name        *string        `json:"name,omitempty"`
-	Description *string        `json:"description,omitempty"`
-	Family      *string        `json:"family,omitempty"`
+	Name        *string         `json:"name,omitempty"`
+	Description *string         `json:"description,omitempty"`
+	Family      *string         `json:"family,omitempty"`
 	Stability   *ModelStability `json:"stability,omitempty"`
-	Status      *ModelStatus   `json:"status,omitempty"`
-	Free        *bool          `json:"free,omitempty"`
+	Status      *ModelStatus    `json:"status,omitempty"`
+	Free        *bool           `json:"free,omitempty"`
 }
 
 func (r *UpdateModelRequest) Validate() error {
@@ -340,7 +340,7 @@ func (r *UpdateModelRequest) Validate() error {
 type CreateMappingRequest struct {
 	ModelID    kernel.ModelID    `json:"model_id"`
 	ProviderID kernel.ProviderID `json:"provider_id"`
-	ExternalID string `json:"external_id"`
+	ExternalID string            `json:"external_id"`
 
 	InputPrice       *float64 `json:"input_price,omitempty"`
 	OutputPrice      *float64 `json:"output_price,omitempty"`
@@ -374,20 +374,20 @@ func (r *CreateMappingRequest) Validate() error {
 
 // UpdateMappingRequest for updating a model-provider mapping
 type UpdateMappingRequest struct {
-	ExternalID       *string  `json:"external_id,omitempty"`
-	InputPrice       *float64 `json:"input_price,omitempty"`
-	OutputPrice      *float64 `json:"output_price,omitempty"`
-	CachedInputPrice *float64 `json:"cached_input_price,omitempty"`
-	RequestPrice     *float64 `json:"request_price,omitempty"`
-	ImageInputPrice  *float64 `json:"image_input_price,omitempty"`
-	ContextSize      *int     `json:"context_size,omitempty"`
-	MaxOutput        *int     `json:"max_output,omitempty"`
-	Streaming        *bool    `json:"streaming,omitempty"`
-	Vision           *bool    `json:"vision,omitempty"`
-	Reasoning        *bool    `json:"reasoning,omitempty"`
-	Tools            *bool    `json:"tools,omitempty"`
-	JSONOutput       *bool    `json:"json_output,omitempty"`
-	Region           *string  `json:"region,omitempty"`
+	ExternalID       *string      `json:"external_id,omitempty"`
+	InputPrice       *float64     `json:"input_price,omitempty"`
+	OutputPrice      *float64     `json:"output_price,omitempty"`
+	CachedInputPrice *float64     `json:"cached_input_price,omitempty"`
+	RequestPrice     *float64     `json:"request_price,omitempty"`
+	ImageInputPrice  *float64     `json:"image_input_price,omitempty"`
+	ContextSize      *int         `json:"context_size,omitempty"`
+	MaxOutput        *int         `json:"max_output,omitempty"`
+	Streaming        *bool        `json:"streaming,omitempty"`
+	Vision           *bool        `json:"vision,omitempty"`
+	Reasoning        *bool        `json:"reasoning,omitempty"`
+	Tools            *bool        `json:"tools,omitempty"`
+	JSONOutput       *bool        `json:"json_output,omitempty"`
+	Region           *string      `json:"region,omitempty"`
 	Status           *ModelStatus `json:"status,omitempty"`
 }
 
@@ -440,11 +440,11 @@ var (
 )
 
 func ErrProviderNotFound() *errx.Error      { return ErrRegistry.New(CodeProviderNotFound) }
-func ErrProviderAlreadyExists() *errx.Error  { return ErrRegistry.New(CodeProviderAlreadyExists) }
-func ErrModelNotFound() *errx.Error          { return ErrRegistry.New(CodeModelNotFound) }
-func ErrModelAlreadyExists() *errx.Error     { return ErrRegistry.New(CodeModelAlreadyExists) }
-func ErrMappingNotFound() *errx.Error        { return ErrRegistry.New(CodeMappingNotFound) }
-func ErrMappingAlreadyExists() *errx.Error   { return ErrRegistry.New(CodeMappingAlreadyExists) }
+func ErrProviderAlreadyExists() *errx.Error { return ErrRegistry.New(CodeProviderAlreadyExists) }
+func ErrModelNotFound() *errx.Error         { return ErrRegistry.New(CodeModelNotFound) }
+func ErrModelAlreadyExists() *errx.Error    { return ErrRegistry.New(CodeModelAlreadyExists) }
+func ErrMappingNotFound() *errx.Error       { return ErrRegistry.New(CodeMappingNotFound) }
+func ErrMappingAlreadyExists() *errx.Error  { return ErrRegistry.New(CodeMappingAlreadyExists) }
 
 // ============================================================================
 // Model Fallback Entity

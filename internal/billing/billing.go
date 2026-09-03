@@ -31,22 +31,22 @@ func (b *TenantBalance) HasSufficientFunds(amount float64) bool {
 type TransactionType string
 
 const (
-	TxTypeTopUp    TransactionType = "top_up"    // Credits added (purchase, grant)
-	TxTypeUsage    TransactionType = "usage"     // Credits consumed by gateway requests
-	TxTypeRefund   TransactionType = "refund"    // Credits returned
-	TxTypeAdjust   TransactionType = "adjust"    // Manual admin adjustment
+	TxTypeTopUp  TransactionType = "top_up" // Credits added (purchase, grant)
+	TxTypeUsage  TransactionType = "usage"  // Credits consumed by gateway requests
+	TxTypeRefund TransactionType = "refund" // Credits returned
+	TxTypeAdjust TransactionType = "adjust" // Manual admin adjustment
 )
 
 // Transaction is a single entry in the credit ledger
 type Transaction struct {
-	ID          kernel.TransactionID `db:"id" json:"id"`
-	TenantID    kernel.TenantID      `db:"tenant_id" json:"tenant_id"`
-	Type        TransactionType      `db:"type" json:"type"`
-	Amount      float64              `db:"amount" json:"amount"`           // Positive = credit, negative = debit
-	BalanceAfter float64             `db:"balance_after" json:"balance_after"` // Balance after this tx
-	Description string               `db:"description" json:"description"`
-	ReferenceID string               `db:"reference_id" json:"reference_id,omitempty"` // e.g. usage_log ID, stripe payment ID
-	CreatedAt   time.Time            `db:"created_at" json:"created_at"`
+	ID           kernel.TransactionID `db:"id" json:"id"`
+	TenantID     kernel.TenantID      `db:"tenant_id" json:"tenant_id"`
+	Type         TransactionType      `db:"type" json:"type"`
+	Amount       float64              `db:"amount" json:"amount"`               // Positive = credit, negative = debit
+	BalanceAfter float64              `db:"balance_after" json:"balance_after"` // Balance after this tx
+	Description  string               `db:"description" json:"description"`
+	ReferenceID  string               `db:"reference_id" json:"reference_id,omitempty"` // e.g. usage_log ID, stripe payment ID
+	CreatedAt    time.Time            `db:"created_at" json:"created_at"`
 }
 
 // ============================================================================
@@ -188,27 +188,27 @@ func ErrBalanceNotFound() *errx.Error     { return ErrRegistry.New(CodeBalanceNo
 
 // SpendingLimitConfig holds per-tenant daily/monthly spending caps.
 type SpendingLimitConfig struct {
-	TenantID       kernel.TenantID `db:"tenant_id" json:"tenant_id"`
-	DailyLimitUSD  *float64        `db:"daily_limit_usd" json:"daily_limit_usd"`   // nil = no limit
-	MonthlyLimitUSD *float64       `db:"monthly_limit_usd" json:"monthly_limit_usd"` // nil = no limit
-	CreatedAt      time.Time       `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time       `db:"updated_at" json:"updated_at"`
+	TenantID        kernel.TenantID `db:"tenant_id" json:"tenant_id"`
+	DailyLimitUSD   *float64        `db:"daily_limit_usd" json:"daily_limit_usd"`     // nil = no limit
+	MonthlyLimitUSD *float64        `db:"monthly_limit_usd" json:"monthly_limit_usd"` // nil = no limit
+	CreatedAt       time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time       `db:"updated_at" json:"updated_at"`
 }
 
 // UpsertSpendingLimitRequest is the DTO for creating/updating spending limits.
 type UpsertSpendingLimitRequest struct {
-	DailyLimitUSD  *float64 `json:"daily_limit_usd"`
+	DailyLimitUSD   *float64 `json:"daily_limit_usd"`
 	MonthlyLimitUSD *float64 `json:"monthly_limit_usd"`
 }
 
 // SpendingCheckResult holds the outcome of a spending limit check.
 type SpendingCheckResult struct {
-	Allowed       bool    `json:"allowed"`
-	DailySpend    float64 `json:"daily_spend_usd"`
-	MonthlySpend  float64 `json:"monthly_spend_usd"`
-	DailyLimit    *float64 `json:"daily_limit_usd,omitempty"`
-	MonthlyLimit  *float64 `json:"monthly_limit_usd,omitempty"`
-	Reason        string  `json:"reason,omitempty"`
+	Allowed      bool     `json:"allowed"`
+	DailySpend   float64  `json:"daily_spend_usd"`
+	MonthlySpend float64  `json:"monthly_spend_usd"`
+	DailyLimit   *float64 `json:"daily_limit_usd,omitempty"`
+	MonthlyLimit *float64 `json:"monthly_limit_usd,omitempty"`
+	Reason       string   `json:"reason,omitempty"`
 }
 
 var (

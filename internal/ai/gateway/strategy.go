@@ -45,8 +45,8 @@ func (s RoutingStrategy) IsValid() bool {
 
 // RoutingConfig is a per-tenant routing configuration stored in the DB.
 type RoutingConfig struct {
-	TenantID  kernel.TenantID `json:"tenant_id" db:"tenant_id"`
-	Strategy  RoutingStrategy `json:"strategy" db:"strategy"`
+	TenantID kernel.TenantID `json:"tenant_id" db:"tenant_id"`
+	Strategy RoutingStrategy `json:"strategy" db:"strategy"`
 }
 
 // RoutingConfigRepository persists per-tenant routing strategy preferences.

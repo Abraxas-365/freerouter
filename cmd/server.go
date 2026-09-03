@@ -141,7 +141,7 @@ func setupMiddleware(app *fiber.App, cfg *config.Config) {
 func registerRoutes(app *fiber.App, container *Container) {
 	logx.Info("Registering routes...")
 
-		// IAM Routes
+	// IAM Routes
 	container.IAM.OAuthHandlers.RegisterRoutes(app)
 	logx.Info("  > OAuth routes registered")
 
@@ -159,11 +159,11 @@ func registerRoutes(app *fiber.App, container *Container) {
 
 	// manifesto:public-routes
 
-		protected := app.Group("/api/v1",
+	protected := app.Group("/api/v1",
 		container.IAM.UnifiedAuthMiddleware.Authenticate(),
 	)
 
-		container.IAM.APIKeyHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	container.IAM.APIKeyHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > API key routes registered")
 
 	container.IAM.InvitationHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
@@ -215,7 +215,6 @@ func registerRoutes(app *fiber.App, container *Container) {
 
 	logx.Info("All routes registered")
 }
-
 
 // ============================================================================
 // Handlers

@@ -11,8 +11,8 @@ import (
 )
 
 type BillingService struct {
-	repo          billing.BillingRepository
-	spendingRepo  billing.SpendingLimitRepository // nil = no spending limits
+	repo         billing.BillingRepository
+	spendingRepo billing.SpendingLimitRepository // nil = no spending limits
 }
 
 func NewBillingService(repo billing.BillingRepository, spendingRepo billing.SpendingLimitRepository) *BillingService {

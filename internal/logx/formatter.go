@@ -49,16 +49,3 @@ func prettyJSON(data interface{}) string {
 	}
 	return string(bytes)
 }
-
-// compactJSON formats data as compact JSON
-func compactJSON(data interface{}) string {
-	if data == nil {
-		return ""
-	}
-
-	bytes, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Sprintf("%+v", data)
-	}
-	return string(bytes)
-}

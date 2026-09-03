@@ -46,13 +46,13 @@ type anthropicTool struct {
 // ---------- Response types (Anthropic native) ----------
 
 type anthropicResponse struct {
-	ID         string               `json:"id"`
-	Type       string               `json:"type"` // "message"
-	Role       string               `json:"role"`
-	Content    []anthropicContent   `json:"content"`
-	Model      string               `json:"model"`
-	StopReason *string              `json:"stop_reason"`
-	Usage      *anthropicUsage      `json:"usage"`
+	ID         string             `json:"id"`
+	Type       string             `json:"type"` // "message"
+	Role       string             `json:"role"`
+	Content    []anthropicContent `json:"content"`
+	Model      string             `json:"model"`
+	StopReason *string            `json:"stop_reason"`
+	Usage      *anthropicUsage    `json:"usage"`
 }
 
 type anthropicContent struct {
@@ -82,10 +82,10 @@ type anthropicStreamEvent struct {
 }
 
 type anthropicDelta struct {
-	Type       string  `json:"type,omitempty"` // "text_delta", "input_json_delta"
-	Text       string  `json:"text,omitempty"`
-	StopReason *string `json:"stop_reason,omitempty"` // in message_delta
-	PartialJSON string `json:"partial_json,omitempty"`
+	Type        string  `json:"type,omitempty"` // "text_delta", "input_json_delta"
+	Text        string  `json:"text,omitempty"`
+	StopReason  *string `json:"stop_reason,omitempty"` // in message_delta
+	PartialJSON string  `json:"partial_json,omitempty"`
 }
 
 // ============================================================================

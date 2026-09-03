@@ -18,8 +18,8 @@ type Config struct {
 	TenantConfig TenantConfig
 	AI           AIConfig
 	Stripe       StripeConfig
-		Jobx JobxConfig
-		Notifx NotifxConfig
+	Jobx         JobxConfig
+	Notifx       NotifxConfig
 	// manifesto:config-fields
 }
 
@@ -70,8 +70,8 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
-			cfg.Jobx = loadJobxConfig()
-		cfg.Notifx = loadNotifxConfig()
+	cfg.Jobx = loadJobxConfig()
+	cfg.Notifx = loadNotifxConfig()
 	// manifesto:config-loads
 
 	return cfg, nil

@@ -20,11 +20,11 @@ import (
 )
 
 const (
-	maxRetries     = 5
+	maxRetries      = 5
 	deliveryTimeout = 10 * time.Second
-	retryInterval  = 30 * time.Second
-	pollInterval   = 10 * time.Second
-	maxBatchSize   = 50
+	retryInterval   = 30 * time.Second
+	pollInterval    = 10 * time.Second
+	maxBatchSize    = 50
 )
 
 type WebhookService struct {
@@ -36,7 +36,7 @@ type WebhookService struct {
 
 func NewWebhookService(repo webhook.WebhookRepository) *WebhookService {
 	return &WebhookService{
-		repo: repo,
+		repo:   repo,
 		client: &http.Client{Timeout: deliveryTimeout},
 		stopCh: make(chan struct{}),
 	}
@@ -209,7 +209,7 @@ func (s *WebhookService) deliver(cfg *webhook.WebhookConfig, d *webhook.WebhookD
 		return
 	}
 	defer resp.Body.Close()
-	io.ReadAll(io.LimitReader(resp.Body, 1024)) // drain
+	_, _ = io.ReadAll(io.LimitReader(resp.Body, 1024)) // drain so the connection can be reused
 
 	statusCode := resp.StatusCode
 	d.StatusCode = &statusCode
@@ -218,7 +218,9 @@ func (s *WebhookService) deliver(cfg *webhook.WebhookConfig, d *webhook.WebhookD
 		now := time.Now().UTC()
 		d.Status = webhook.DeliverySuccess
 		d.CompletedAt = &now
-		s.repo.UpdateDelivery(ctx, d)
+		if err := s.repo.UpdateDelivery(ctx, d); err != nil {
+			slog.Error("webhook: failed to update delivery status", "delivery_id", d.ID, "error", err)
+		}
 		return
 	}
 
@@ -239,7 +241,9 @@ func (s *WebhookService) scheduleRetry(ctx context.Context, d *webhook.WebhookDe
 	if statusCode > 0 {
 		d.StatusCode = &statusCode
 	}
-	s.repo.UpdateDelivery(ctx, d)
+	if err := s.repo.UpdateDelivery(ctx, d); err != nil {
+		slog.Error("webhook: failed to schedule retry", "delivery_id", d.ID, "error", err)
+	}
 }
 
 func (s *WebhookService) markFailed(ctx context.Context, d *webhook.WebhookDelivery, statusCode int, err error) {
@@ -251,7 +255,9 @@ func (s *WebhookService) markFailed(ctx context.Context, d *webhook.WebhookDeliv
 	if statusCode > 0 {
 		d.StatusCode = &statusCode
 	}
-	s.repo.UpdateDelivery(ctx, d)
+	if updErr := s.repo.UpdateDelivery(ctx, d); updErr != nil {
+		slog.Error("webhook: failed to mark delivery failed", "delivery_id", d.ID, "error", updErr)
+	}
 }
 
 func (s *WebhookService) processRetries() {
@@ -290,4 +296,3 @@ func generateSecret() string {
 	mac.Write([]byte(time.Now().String()))
 	return "whsec_" + hex.EncodeToString(mac.Sum(nil))[:32]
 }
-
