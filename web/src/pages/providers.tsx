@@ -1,26 +1,13 @@
 import { useEffect, useState } from "react"
 import {
-  Server, Plus, ExternalLink, MoreHorizontal,
-  Pencil, Trash2, Zap, ZapOff,
+  Server, ExternalLink, Zap,
 } from "lucide-react"
 import { useApi } from "@/api"
-import type { Provider, CreateProviderRequest, UpdateProviderRequest } from "@/api/types"
+import type { Provider } from "@/api/types"
 import { PageHeader, EmptyState, StatusBadge } from "@/components"
 import { MetricCardSkeleton } from "@/components/feedback/skeletons"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter,
-  DialogHeader, DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -29,8 +16,6 @@ export default function ProvidersPage() {
   const api = useApi()
   const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
-  const [createOpen, setCreateOpen] = useState(false)
-  const [editProvider, setEditProvider] = useState<Provider | null>(null)
 
   async function load() {
     const res = await api.providers.list()
@@ -40,33 +25,14 @@ export default function ProvidersPage() {
 
   useEffect(() => { load() }, [api])
 
-  async function handleCreate(req: CreateProviderRequest) {
-    await api.providers.create(req)
-    setCreateOpen(false)
-    load()
-  }
 
-  async function handleUpdate(id: string, req: UpdateProviderRequest) {
-    await api.providers.update(id, req)
-    setEditProvider(null)
-    load()
-  }
 
-  async function handleDelete(id: string) {
-    await api.providers.delete(id)
-    load()
-  }
 
-  async function handleToggleStatus(provider: Provider) {
-    const newStatus = provider.status === "active" ? "inactive" : "active"
-    await api.providers.update(provider.id, { status: newStatus })
-    load()
-  }
 
   if (loading) {
     return (
       <div className="space-y-6 p-6">
-        <PageHeader title="Providers" description="Manage LLM providers connected to your gateway" />
+        <PageHeader title="Providers" description="Browse the operator-managed provider catalog" />
         <MetricCardSkeleton count={3} />
       </div>
     )
@@ -79,12 +45,7 @@ export default function ProvidersPage() {
     <div className="space-y-6 p-6">
       <PageHeader
         title="Providers"
-        description="Manage LLM providers connected to your gateway"
-        actions={
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Add Provider
-          </Button>
-        }
+        description="Browse the operator-managed provider catalog"
       />
 
       {/* Summary */}
@@ -106,12 +67,7 @@ export default function ProvidersPage() {
         <EmptyState
           icon={Server}
           title="No providers"
-          description="Add your first LLM provider to start routing requests."
-          action={
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Add Provider
-            </Button>
-          }
+          description="No providers have been configured by the operator."
         />
       ) : (
         <Card>
@@ -167,32 +123,7 @@ export default function ProvidersPage() {
                       {new Date(provider.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditProvider(provider)}>
-                            <Pencil className="h-4 w-4 mr-2" /> Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleToggleStatus(provider)}>
-                            {provider.status === "active" ? (
-                              <><ZapOff className="h-4 w-4 mr-2" /> Deactivate</>
-                            ) : (
-                              <><Zap className="h-4 w-4 mr-2" /> Activate</>
-                            )}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => handleDelete(provider.id)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+
                     </TableCell>
                   </TableRow>
                 ))}
@@ -202,120 +133,7 @@ export default function ProvidersPage() {
         </Card>
       )}
 
-      {/* Create dialog */}
-      <ProviderFormDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        title="Add Provider"
-        description="Connect a new LLM provider to your gateway."
-        onSubmit={handleCreate}
-      />
 
-      {/* Edit dialog */}
-      {editProvider && (
-        <ProviderFormDialog
-          open={!!editProvider}
-          onOpenChange={(open) => { if (!open) setEditProvider(null) }}
-          title="Edit Provider"
-          description={`Update ${editProvider.name} configuration.`}
-          defaults={editProvider}
-          onSubmit={(req) => handleUpdate(editProvider.id, req)}
-        />
-      )}
     </div>
-  )
-}
-
-function ProviderFormDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  defaults,
-  onSubmit,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description: string
-  defaults?: Provider
-  onSubmit: (req: CreateProviderRequest) => void
-}) {
-  const [name, setName] = useState(defaults?.name ?? "")
-  const [desc, setDesc] = useState(defaults?.description ?? "")
-  const [website, setWebsite] = useState(defaults?.website ?? "")
-  const [streaming, setStreaming] = useState(defaults?.streaming ?? true)
-
-  useEffect(() => {
-    if (open) {
-      setName(defaults?.name ?? "")
-      setDesc(defaults?.description ?? "")
-      setWebsite(defaults?.website ?? "")
-      setStreaming(defaults?.streaming ?? true)
-    }
-  }, [open, defaults])
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    onSubmit({ name, description: desc, website, streaming })
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="font-mono">{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name" className="font-mono text-xs">Name</Label>
-            <Input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. OpenAI"
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="description" className="font-mono text-xs">Description</Label>
-            <Input
-              id="description"
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder="Brief description"
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="website" className="font-mono text-xs">Website</Label>
-            <Input
-              id="website"
-              value={website}
-              onChange={(e) => setWebsite(e.target.value)}
-              placeholder="https://..."
-              required
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="streaming" className="font-mono text-xs">Streaming support</Label>
-            <Switch
-              id="streaming"
-              checked={streaming}
-              onCheckedChange={setStreaming}
-            />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!name.trim()}>
-              {defaults ? "Save Changes" : "Add Provider"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   )
 }

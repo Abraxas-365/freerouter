@@ -66,8 +66,12 @@ func (s *APIKeyService) CreateAPIKey(
 	ctx context.Context,
 	tenantID kernel.TenantID,
 	creatorID kernel.UserID,
+	callerScopes []string,
 	req apikey.CreateAPIKeyRequest,
 ) (*apikey.CreateAPIKeyResponse, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -88,7 +92,7 @@ func (s *APIKeyService) CreateAPIKey(
 		}
 	}
 
-	if err := s.validateScopes(req.Scopes); err != nil {
+	if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
 		return nil, err
 	}
 
@@ -180,8 +184,12 @@ func (s *APIKeyService) UpdateAPIKey(
 	ctx context.Context,
 	keyID string,
 	tenantID kernel.TenantID,
+	callerScopes []string,
 	req apikey.UpdateAPIKeyRequest,
 ) (*apikey.APIKeyDTO, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	key, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)
 	if err != nil {
 		return nil, apikey.ErrAPIKeyNotFound()
@@ -194,16 +202,13 @@ func (s *APIKeyService) UpdateAPIKey(
 		key.Description = *req.Description
 	}
 	if req.Scopes != nil {
-		if err := s.validateScopes(req.Scopes); err != nil {
+		if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
 			return nil, err
 		}
 		key.Scopes = req.Scopes
 	}
 	if req.AllowedModels != nil {
 		key.AllowedModels = req.AllowedModels
-	}
-	if req.IsActive != nil {
-		key.IsActive = *req.IsActive
 	}
 
 	key.UpdatedAt = time.Now().UTC()
@@ -220,13 +225,7 @@ func (s *APIKeyService) RevokeAPIKey(
 	keyID string,
 	tenantID kernel.TenantID,
 ) error {
-	key, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)
-	if err != nil {
-		return apikey.ErrAPIKeyNotFound()
-	}
-
-	key.Revoke()
-	return s.apiKeyRepo.Save(ctx, *key)
+	return s.apiKeyRepo.Revoke(ctx, keyID, tenantID)
 }
 
 func (s *APIKeyService) DeleteAPIKey(
@@ -242,7 +241,7 @@ func (s *APIKeyService) DeleteAPIKey(
 	return s.apiKeyRepo.Delete(ctx, keyID, tenantID)
 }
 
-func (s *APIKeyService) validateScopes(scopesList []string) error {
+func (s *APIKeyService) validateScopes(scopesList, callerScopes []string) error {
 	if len(scopesList) == 0 {
 		return errx.New("at least one scope is required", errx.TypeValidation)
 	}
@@ -260,6 +259,11 @@ func (s *APIKeyService) validateScopes(scopesList []string) error {
 			WithDetail("hint", "Use scopes.GetAllScopes() to see valid options")
 	}
 
+	for _, scope := range scopesList {
+		if !kernel.ScopesContain(callerScopes, scope) {
+			return apikey.ErrAPIKeyInsufficientScope().WithDetail("scope", scope)
+		}
+	}
 	return nil
 }
 
@@ -284,6 +288,13 @@ func (s *APIKeyService) ValidateAPIKey(
 		return nil, apikey.ErrAPIKeyRevoked()
 	}
 
+	t, err := s.tenantRepo.FindByID(ctx, key.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil || !t.IsActive() {
+		return nil, tenant.ErrTenantSuspended()
+	}
 	// Best-effort, fire-and-forget: last-used tracking must not block auth.
 	go func() { _ = s.apiKeyRepo.UpdateLastUsed(context.Background(), key.ID) }()
 

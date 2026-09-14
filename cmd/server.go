@@ -11,13 +11,11 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/errx"
 	"github.com/Abraxas-365/freerouter/internal/logx"
 	// manifesto:server-imports
-	"github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -142,7 +140,7 @@ func registerRoutes(app *fiber.App, container *Container) {
 	logx.Info("Registering routes...")
 
 	// IAM Routes
-	container.IAM.OAuthHandlers.RegisterRoutes(app)
+	container.IAM.OAuthHandlers.RegisterRoutes(app, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > OAuth routes registered")
 
 	container.IAM.PasswordlessHandlers.RegisterRoutes(app)
@@ -159,9 +157,7 @@ func registerRoutes(app *fiber.App, container *Container) {
 
 	// manifesto:public-routes
 
-	protected := app.Group("/api/v1",
-		container.IAM.UnifiedAuthMiddleware.Authenticate(),
-	)
+	protected := app.Group("/api/v1")
 
 	container.IAM.APIKeyHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > API key routes registered")
@@ -205,11 +201,7 @@ func registerRoutes(app *fiber.App, container *Container) {
 	container.AI.Gateway.Handlers.RegisterAdminRoutes(protected, container.IAM.UnifiedAuthMiddleware)
 	logx.Info("  > Rate limit config routes registered")
 
-	// Prometheus metrics endpoint
-	app.Get("/metrics", adaptor.HTTPHandler(
-		promhttp.HandlerFor(container.AI.Gateway.Metrics.Registry, promhttp.HandlerOpts{}),
-	))
-	logx.Info("  > Metrics endpoint registered")
+	// Global metrics are not exposed on the customer listener.
 
 	// manifesto:route-registration
 

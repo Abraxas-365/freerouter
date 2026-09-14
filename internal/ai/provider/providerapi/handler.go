@@ -19,30 +19,19 @@ func NewProviderHandlers(service *providersrv.ProviderService) *ProviderHandlers
 
 func (h *ProviderHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	providers := router.Group("/providers", authMiddleware.Authenticate())
-	providers.Post("/", authMiddleware.RequireScope(scopes.ScopeProvidersWrite), h.CreateProvider)
 	providers.Get("/", authMiddleware.RequireScope(scopes.ScopeProvidersRead), h.ListProviders)
 	providers.Get("/:id", authMiddleware.RequireScope(scopes.ScopeProvidersRead), h.GetProvider)
-	providers.Put("/:id", authMiddleware.RequireScope(scopes.ScopeProvidersWrite), h.UpdateProvider)
-	providers.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeProvidersDelete), h.DeleteProvider)
 
 	models := router.Group("/models", authMiddleware.Authenticate())
-	models.Post("/", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.CreateModel)
 	models.Get("/", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.ListModels)
 	models.Get("/:id", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.GetModel)
 	models.Get("/:id/mappings", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.GetModelWithMappings)
-	models.Put("/:id", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.UpdateModel)
-	models.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeModelsDelete), h.DeleteModel)
 
 	mappings := router.Group("/mappings", authMiddleware.Authenticate())
-	mappings.Post("/", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.CreateMapping)
 	mappings.Get("/:id", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.GetMapping)
-	mappings.Put("/:id", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.UpdateMapping)
-	mappings.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeModelsDelete), h.DeleteMapping)
 
 	fallbacks := router.Group("/model-fallbacks", authMiddleware.Authenticate())
-	fallbacks.Post("/", authMiddleware.RequireScope(scopes.ScopeModelsWrite), h.CreateFallback)
 	fallbacks.Get("/by-model/:modelId", authMiddleware.RequireScope(scopes.ScopeModelsRead), h.ListFallbacks)
-	fallbacks.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeModelsDelete), h.DeleteFallback)
 }
 
 // ============================================================================

@@ -30,11 +30,13 @@ const (
 
 // User entity representing a user in the system
 type User struct {
-	ID       kernel.UserID   `db:"id" json:"id"`
-	TenantID kernel.TenantID `db:"tenant_id" json:"tenant_id"`
-	Email    string          `db:"email" json:"email"`
-	Name     string          `db:"name" json:"name"`
-	Picture  *string         `db:"picture" json:"picture,omitempty"`
+	Version           int64           `db:"version" json:"-"`
+	CredentialVersion int64           `db:"credential_version" json:"-"`
+	ID                kernel.UserID   `db:"id" json:"id"`
+	TenantID          kernel.TenantID `db:"tenant_id" json:"tenant_id"`
+	Email             string          `db:"email" json:"email"`
+	Name              string          `db:"name" json:"name"`
+	Picture           *string         `db:"picture" json:"picture,omitempty"`
 
 	// Authentication methods (can have multiple)
 	OAuthProvider   iam.OAuthProvider `db:"oauth_provider" json:"oauth_provider"`
@@ -246,6 +248,9 @@ type UpdateUserRequest struct {
 }
 
 func (r *UpdateUserRequest) Validate() error {
+	if r.Status != nil {
+		return errx.Validation("Use suspend or reinstate; activation belongs to onboarding").WithDetail("field", "status")
+	}
 	if r.Name != nil && utf8.RuneCountInString(strings.TrimSpace(*r.Name)) < 2 {
 		return errx.Validation("Name must be at least 2 characters").WithDetail("field", "name")
 	}

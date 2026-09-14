@@ -33,7 +33,7 @@ import type {
   // API Keys
   ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, CreateApiKeyResponse,
   // Users
-  User, CreateUserRequest, UpdateUserRequest,
+  User, UpdateUserRequest,
   // Roles
   Role, CreateRoleRequest, UpdateRoleRequest, AssignRoleRequest, UserRolesResponse,
   // Invitations
@@ -218,9 +218,8 @@ export interface ApiKeysPort {
 export interface UsersPort {
   list(): Promise<Paginated<User>>
   get(id: string): Promise<User>
-  create(req: CreateUserRequest): Promise<User>
   update(id: string, req: UpdateUserRequest): Promise<User>
-  activate(id: string): Promise<void>
+  reinstate(id: string): Promise<void>
   suspend(id: string, reason?: string): Promise<void>
   delete(id: string): Promise<void>
 }
@@ -245,6 +244,7 @@ export interface RolesPort {
 // =============================================================================
 
 export interface InvitationsPort {
+  resend(id: string): Promise<void>
   list(): Promise<Paginated<Invitation>>
   listPending(): Promise<Paginated<Invitation>>
   get(id: string): Promise<Invitation>
@@ -260,6 +260,7 @@ export interface InvitationsPort {
 // =============================================================================
 
 export interface ApiPort {
+  currentTenant(): Promise<string>
   providers: ProviderPort
   models: ModelPort
   mappings: MappingPort

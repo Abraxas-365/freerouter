@@ -40,7 +40,7 @@ func (h *UsageHandlers) GetLog(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if log.TenantID != authCtx.TenantID && !authCtx.HasScope("*") {
+	if log.TenantID != authCtx.TenantID {
 		return fiber.NewError(fiber.StatusForbidden, "access denied to this log")
 	}
 	return c.JSON(log.ToDetailDTO())

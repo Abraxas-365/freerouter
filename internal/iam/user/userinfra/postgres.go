@@ -7,19 +7,19 @@ import (
 
 	"github.com/Abraxas-365/freerouter/internal/errx"
 	"github.com/Abraxas-365/freerouter/internal/iam"
+	"github.com/Abraxas-365/freerouter/internal/iam/iaminfra"
 	"github.com/Abraxas-365/freerouter/internal/iam/user"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
-	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
 
 // PostgresUserRepository is the PostgreSQL implementation of UserRepository
 type PostgresUserRepository struct {
-	db *sqlx.DB
+	db iaminfra.DBTX
 }
 
 // NewPostgresUserRepository creates a new instance of the user repository
-func NewPostgresUserRepository(db *sqlx.DB) user.UserRepository {
+func NewPostgresUserRepository(db iaminfra.DBTX) user.UserRepository {
 	return &PostgresUserRepository{
 		db: db,
 	}
@@ -27,38 +27,42 @@ func NewPostgresUserRepository(db *sqlx.DB) user.UserRepository {
 
 // userDB is the database representation with pq.StringArray for scopes
 type userDB struct {
-	ID              string         `db:"id"`
-	TenantID        string         `db:"tenant_id"`
-	Email           string         `db:"email"`
-	Name            string         `db:"name"`
-	Picture         *string        `db:"picture"`
-	Status          string         `db:"status"`
-	Scopes          pq.StringArray `db:"scopes"`
-	OAuthProvider   string         `db:"oauth_provider"`
-	OAuthProviderID string         `db:"oauth_provider_id"`
-	EmailVerified   bool           `db:"email_verified"`
-	OTPEnabled      bool           `db:"otp_enabled"`
-	LastLoginAt     sql.NullTime   `db:"last_login_at"` // ✅ NOT a pointer
-	CreatedAt       time.Time      `db:"created_at"`    // ✅ Use time.Time directly
-	UpdatedAt       time.Time      `db:"updated_at"`    // ✅ Use time.Time directly
+	Version           int64          `db:"version"`
+	CredentialVersion int64          `db:"credential_version"`
+	ID                string         `db:"id"`
+	TenantID          string         `db:"tenant_id"`
+	Email             string         `db:"email"`
+	Name              string         `db:"name"`
+	Picture           *string        `db:"picture"`
+	Status            string         `db:"status"`
+	Scopes            pq.StringArray `db:"scopes"`
+	OAuthProvider     string         `db:"oauth_provider"`
+	OAuthProviderID   string         `db:"oauth_provider_id"`
+	EmailVerified     bool           `db:"email_verified"`
+	OTPEnabled        bool           `db:"otp_enabled"`
+	LastLoginAt       sql.NullTime   `db:"last_login_at"` // ✅ NOT a pointer
+	CreatedAt         time.Time      `db:"created_at"`    // ✅ Use time.Time directly
+	UpdatedAt         time.Time      `db:"updated_at"`    // ✅ Use time.Time directly
 }
 
 // toDomain converts database model to domain model
 func (db *userDB) toDomain() (*user.User, error) {
 	u := &user.User{
-		ID:              kernel.UserID(db.ID),
-		TenantID:        kernel.TenantID(db.TenantID),
-		Email:           db.Email,
-		Name:            db.Name,
-		Picture:         db.Picture,
-		Status:          user.UserStatus(db.Status),
-		Scopes:          []string(db.Scopes),
-		OAuthProvider:   iam.OAuthProvider(db.OAuthProvider),
-		OAuthProviderID: db.OAuthProviderID,
-		EmailVerified:   db.EmailVerified,
-		OTPEnabled:      db.OTPEnabled,
-		CreatedAt:       db.CreatedAt,
-		UpdatedAt:       db.UpdatedAt,
+		Version:           db.Version,
+		CredentialVersion: db.CredentialVersion,
+		ID:                kernel.UserID(db.ID),
+		TenantID:          kernel.TenantID(db.TenantID),
+		Email:             db.Email,
+		Name:              db.Name,
+		Picture:           db.Picture,
+		Status:            user.UserStatus(db.Status),
+		Scopes:            []string(db.Scopes),
+		OAuthProvider:     iam.OAuthProvider(db.OAuthProvider),
+		OAuthProviderID:   db.OAuthProviderID,
+		EmailVerified:     db.EmailVerified,
+		OTPEnabled:        db.OTPEnabled,
+		CreatedAt:         db.CreatedAt,
+		UpdatedAt:         db.UpdatedAt,
 	}
 
 	if db.LastLoginAt.Valid {
@@ -72,7 +76,7 @@ func (db *userDB) toDomain() (*user.User, error) {
 func (r *PostgresUserRepository) FindByID(ctx context.Context, id kernel.UserID, tenantID kernel.TenantID) (*user.User, error) {
 	query := `
 		SELECT
-			id, tenant_id, email, name, picture, status, scopes,
+			id, tenant_id, email, name, picture, status, scopes, credential_version, version,
 			oauth_provider, oauth_provider_id, email_verified, otp_enabled,
 			last_login_at, created_at, updated_at
 		FROM users
@@ -96,7 +100,7 @@ func (r *PostgresUserRepository) FindByID(ctx context.Context, id kernel.UserID,
 func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (*user.User, error) {
 	query := `
 		SELECT
-			id, tenant_id, email, name, picture, status, scopes,
+			id, tenant_id, email, name, picture, status, scopes, credential_version, version,
 			oauth_provider, oauth_provider_id, email_verified, otp_enabled,
 			last_login_at, created_at, updated_at
 		FROM users
@@ -120,7 +124,7 @@ func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email string, 
 func (r *PostgresUserRepository) FindByEmailAcrossTenants(ctx context.Context, email string) ([]*user.User, error) {
 	query := `
 		SELECT
-			id, tenant_id, email, name, picture, status, scopes,
+			id, tenant_id, email, name, picture, status, scopes, credential_version, version,
 			oauth_provider, oauth_provider_id, email_verified, otp_enabled,
 			last_login_at, created_at, updated_at
 		FROM users
@@ -151,7 +155,7 @@ func (r *PostgresUserRepository) FindByEmailAcrossTenants(ctx context.Context, e
 func (r *PostgresUserRepository) FindByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*user.User, error) {
 	query := `
 		SELECT
-			id, tenant_id, email, name, picture, status, scopes,
+			id, tenant_id, email, name, picture, status, scopes, credential_version, version,
 			oauth_provider, oauth_provider_id, email_verified, otp_enabled,
 			last_login_at, created_at, updated_at
 		FROM users
@@ -180,15 +184,10 @@ func (r *PostgresUserRepository) FindByTenant(ctx context.Context, tenantID kern
 
 // Save saves or updates a user
 func (r *PostgresUserRepository) Save(ctx context.Context, u user.User) error {
-	exists, err := r.userExists(ctx, u.ID, u.TenantID)
-	if err != nil {
-		return errx.Wrap(err, "failed to check user existence", errx.TypeInternal)
+	if u.Version == 0 {
+		return r.create(ctx, u)
 	}
-
-	if exists {
-		return r.update(ctx, u)
-	}
-	return r.create(ctx, u)
+	return r.update(ctx, u)
 }
 
 // create creates a new user
@@ -250,7 +249,7 @@ func (r *PostgresUserRepository) update(ctx context.Context, u user.User) error 
 			otp_enabled = $9,
 			last_login_at = $10,
 			updated_at = $11
-		WHERE id = $12 AND tenant_id = $13`
+		WHERE id = $12 AND tenant_id = $13 AND credential_version = $14 AND version = $15`
 
 	result, err := r.db.ExecContext(ctx, query,
 		u.Email,
@@ -266,6 +265,8 @@ func (r *PostgresUserRepository) update(ctx context.Context, u user.User) error 
 		u.UpdatedAt,
 		u.ID.String(),
 		u.TenantID.String(),
+		u.CredentialVersion,
+		u.Version,
 	)
 
 	if err != nil {
@@ -294,7 +295,12 @@ func (r *PostgresUserRepository) update(ctx context.Context, u user.User) error 
 
 // Delete deletes a user
 func (r *PostgresUserRepository) Delete(ctx context.Context, id kernel.UserID, tenantID kernel.TenantID) error {
-	query := `DELETE FROM users WHERE id = $1 AND tenant_id = $2`
+	query := `WITH locked_tenant AS MATERIALIZED (
+ SELECT id FROM tenants WHERE id = $2 FOR UPDATE
+ ), deleted AS (
+ DELETE FROM users WHERE id = $1 AND tenant_id IN (SELECT id FROM locked_tenant) RETURNING tenant_id
+ ) UPDATE tenants SET current_users = GREATEST(current_users - 1, 0), updated_at = NOW()
+ WHERE id IN (SELECT tenant_id FROM deleted)`
 
 	result, err := r.db.ExecContext(ctx, query, id.String(), tenantID.String())
 	if err != nil {

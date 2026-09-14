@@ -57,11 +57,13 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 		return err
 	}
 
+	defer h.rateLimiter.Release(c.Context(), tenantID.String())
+
 	// Resolve route
 	route, err := h.router.Resolve(c.Context(), requestedModel, &tenantID, nil)
 	if err != nil {
 		if h.metrics != nil {
-			h.metrics.ObserveError(route.ProviderID.String(), "route_error")
+			h.metrics.ObserveError("", "route_error")
 		}
 		return err
 	}
@@ -80,7 +82,7 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 		if h.metrics != nil {
 			h.metrics.ObserveError(route.ProviderID.String(), "upstream_error")
 		}
-		h.logImageRequest(tenantID, route, requestedModel, nil, statusCode, duration, err, nil)
+		h.logImageRequest(tenantID, requestActor(c), route, requestedModel, nil, statusCode, duration, err, nil)
 		return fiber.NewError(fiber.StatusBadGateway, "image generation failed")
 	}
 
@@ -108,7 +110,7 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 
 	// Log usage
 	content := h.buildImageContent(c, &req, imageResp)
-	h.logImageRequest(tenantID, route, requestedModel, imageResp, http.StatusOK, duration, nil, content)
+	h.logImageRequest(tenantID, requestActor(c), route, requestedModel, imageResp, http.StatusOK, duration, nil, content)
 
 	// Fire webhook
 	h.fireImageWebhook(tenantID, requestedModel, route, numImages, totalCost, duration)
@@ -120,6 +122,7 @@ func (h *GatewayHandlers) ImageGeneration(c *fiber.Ctx) error {
 // logImageRequest logs an image generation request to the usage system.
 func (h *GatewayHandlers) logImageRequest(
 	tenantID kernel.TenantID,
+	actor kernel.Actor,
 	route *gateway.RouteResult,
 	requestedModel string,
 	resp *gateway.ImageResponse,
@@ -144,7 +147,7 @@ func (h *GatewayHandlers) logImageRequest(
 			chatResp.Usage.TotalTokens = resp.Usage.TotalTokens
 		}
 	}
-	h.usage.LogRequest(tenantID, route, requestedModel, chatResp, statusCode, duration, false, reqErr, content)
+	h.usage.LogRequest(tenantID, actor, route, requestedModel, chatResp, statusCode, duration, false, reqErr, content)
 }
 
 // buildImageContent builds request content for logging.

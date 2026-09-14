@@ -1,18 +1,19 @@
 package kernel
 
+import "strings"
+
 // ============================================================================
 // Context Types
 // ============================================================================
 
 // AuthContext is the authentication context injected into each request
 type AuthContext struct {
-	UserID        *UserID   `json:"user_id"`
+	Actor         Actor     `json:"actor"`
 	TenantID      TenantID  `json:"tenant_id"`
 	Email         string    `json:"email"`
 	Name          string    `json:"name"`
 	Scopes        []string  `json:"scopes"`
 	AllowedModels []string  `json:"allowed_models,omitempty"`
-	IsAPIKey      bool      `json:"is_api_key"`
 	WalletID      *WalletID `json:"wallet_id,omitempty"` // Set when the API key is bound to a wallet
 }
 
@@ -22,10 +23,7 @@ type AuthContext struct {
 
 // IsValid checks whether the AuthContext is valid
 func (ac *AuthContext) IsValid() bool {
-	if ac.IsAPIKey {
-		return !ac.TenantID.IsEmpty()
-	}
-	return ac.UserID != nil && !ac.UserID.IsEmpty() && !ac.TenantID.IsEmpty()
+	return ac != nil && ac.Actor.IsValid() && !ac.TenantID.IsEmpty()
 }
 
 // ============================================================================
@@ -35,6 +33,9 @@ func (ac *AuthContext) IsValid() bool {
 // MatchScope checks if a held scope grants access to the required scope.
 // Supports exact match, global wildcard "*", and prefix wildcards (e.g., "roles:*" matches "roles:read").
 func MatchScope(held, required string) bool {
+	if strings.HasPrefix(held, "platform:") || strings.HasPrefix(required, "platform:") || strings.HasPrefix(held, "admin:") || strings.HasPrefix(required, "admin:") {
+		return false
+	}
 	if held == required || held == "*" {
 		return true
 	}

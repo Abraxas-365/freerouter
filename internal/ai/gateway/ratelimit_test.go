@@ -181,24 +181,13 @@ func TestRateLimiter_Check_BothLimits(t *testing.T) {
 	}
 }
 
-func TestRateLimiter_NilRedis_FailsOpen(t *testing.T) {
+func TestRateLimiter_NilRedis_FailsClosed(t *testing.T) {
 	rl := NewRateLimiter(nil, RateLimitConfig{RPM: 1, MaxConcurrent: 1}, nil)
-	ctx := context.Background()
-
-	result, err := rl.CheckRPM(ctx, "tenant-1")
-	if err != nil {
-		t.Fatal(err)
+	if _, err := rl.CheckRPM(context.Background(), "tenant"); err == nil {
+		t.Fatal("missing backend allowed request")
 	}
-	if !result.Allowed {
-		t.Fatal("nil Redis should fail open")
-	}
-
-	ok, err := rl.AcquireConcurrency(ctx, "tenant-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("nil Redis should fail open for concurrency")
+	if ok, err := rl.AcquireConcurrency(context.Background(), "tenant"); err == nil || ok {
+		t.Fatal("missing backend allowed concurrency")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/errx"
+	"github.com/Abraxas-365/freerouter/internal/iam/iaminfra"
 	"github.com/Abraxas-365/freerouter/internal/iam/invitation"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
 	"github.com/jmoiron/sqlx"
@@ -14,56 +15,54 @@ import (
 
 // PostgresInvitationRepository is the PostgreSQL implementation of InvitationRepository
 type PostgresInvitationRepository struct {
-	db *sqlx.DB
+	db iaminfra.DBTX
 }
 
 // NewPostgresInvitationRepository creates a new invitation repository instance
-func NewPostgresInvitationRepository(db *sqlx.DB) invitation.InvitationRepository {
+func NewPostgresInvitationRepository(db iaminfra.DBTX) invitation.InvitationRepository {
 	return &PostgresInvitationRepository{
 		db: db,
 	}
 }
 
 // getExecutor returns transaction if present in context, otherwise returns db
-func (r *PostgresInvitationRepository) getExecutor(ctx context.Context) sqlx.ExtContext {
-	if tx, ok := ctx.Value("db_tx").(*sqlx.Tx); ok {
-		return tx
-	}
-	return r.db
-}
 
 // invitationDB is the database representation with pq.StringArray for scopes
 type invitationDB struct {
-	ID         string         `db:"id"`
-	TenantID   string         `db:"tenant_id"`
-	Email      string         `db:"email"`
-	Token      string         `db:"token"`
-	Scopes     pq.StringArray `db:"scopes"`
-	RoleID     *string        `db:"role_id"`
-	Status     string         `db:"status"`
-	InvitedBy  string         `db:"invited_by"`
-	ExpiresAt  time.Time      `db:"expires_at"`
-	AcceptedAt *time.Time     `db:"accepted_at"`
-	AcceptedBy *string        `db:"accepted_by"`
-	CreatedAt  time.Time      `db:"created_at"`
-	UpdatedAt  time.Time      `db:"updated_at"`
+	RoleVersion int64          `db:"role_version"`
+	Version     int64          `db:"version"`
+	ID          string         `db:"id"`
+	TenantID    string         `db:"tenant_id"`
+	Email       string         `db:"email"`
+	Token       string         `db:"token"`
+	Scopes      pq.StringArray `db:"scopes"`
+	RoleID      *string        `db:"role_id"`
+	Status      string         `db:"status"`
+	InvitedBy   string         `db:"invited_by"`
+	ExpiresAt   time.Time      `db:"expires_at"`
+	AcceptedAt  *time.Time     `db:"accepted_at"`
+	AcceptedBy  *string        `db:"accepted_by"`
+	CreatedAt   time.Time      `db:"created_at"`
+	UpdatedAt   time.Time      `db:"updated_at"`
 }
 
 // toDomain converts database model to domain model
 func (db *invitationDB) toDomain() (*invitation.Invitation, error) {
 	inv := &invitation.Invitation{
-		ID:         db.ID,
-		TenantID:   kernel.TenantID(db.TenantID),
-		Email:      db.Email,
-		Token:      db.Token,
-		Scopes:     []string(db.Scopes),
-		RoleID:     db.RoleID,
-		Status:     invitation.InvitationStatus(db.Status),
-		InvitedBy:  kernel.UserID(db.InvitedBy),
-		ExpiresAt:  db.ExpiresAt,
-		AcceptedAt: db.AcceptedAt,
-		CreatedAt:  db.CreatedAt,
-		UpdatedAt:  db.UpdatedAt,
+		RoleVersion: db.RoleVersion,
+		Version:     db.Version,
+		ID:          db.ID,
+		TenantID:    kernel.TenantID(db.TenantID),
+		Email:       db.Email,
+		Token:       db.Token,
+		Scopes:      []string(db.Scopes),
+		RoleID:      db.RoleID,
+		Status:      invitation.InvitationStatus(db.Status),
+		InvitedBy:   kernel.UserID(db.InvitedBy),
+		ExpiresAt:   db.ExpiresAt,
+		AcceptedAt:  db.AcceptedAt,
+		CreatedAt:   db.CreatedAt,
+		UpdatedAt:   db.UpdatedAt,
 	}
 
 	if db.AcceptedBy != nil {
@@ -76,12 +75,12 @@ func (db *invitationDB) toDomain() (*invitation.Invitation, error) {
 
 // FindByID finds an invitation by ID
 func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) (*invitation.Invitation, error) {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		SELECT
 			id, tenant_id, email, token, scopes, role_id, status, invited_by,
-			expires_at, accepted_at, accepted_by, created_at, updated_at
+			expires_at, accepted_at, accepted_by, created_at, updated_at, version, role_version
 		FROM invitations
 		WHERE id = $1`
 
@@ -100,12 +99,12 @@ func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) 
 
 // FindByToken finds an invitation by token
 func (r *PostgresInvitationRepository) FindByToken(ctx context.Context, token string) (*invitation.Invitation, error) {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		SELECT
 			id, tenant_id, email, token, scopes, role_id, status, invited_by,
-			expires_at, accepted_at, accepted_by, created_at, updated_at
+			expires_at, accepted_at, accepted_by, created_at, updated_at, version, role_version
 		FROM invitations
 		WHERE token = $1`
 
@@ -123,12 +122,12 @@ func (r *PostgresInvitationRepository) FindByToken(ctx context.Context, token st
 
 // FindByEmail finds invitations by email
 func (r *PostgresInvitationRepository) FindByEmail(ctx context.Context, email string, tenantID kernel.TenantID) ([]*invitation.Invitation, error) {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		SELECT
 			id, tenant_id, email, token, scopes, role_id, status, invited_by,
-			expires_at, accepted_at, accepted_by, created_at, updated_at
+			expires_at, accepted_at, accepted_by, created_at, updated_at, version, role_version
 		FROM invitations
 		WHERE email = $1 AND tenant_id = $2
 		ORDER BY created_at DESC`
@@ -155,12 +154,12 @@ func (r *PostgresInvitationRepository) FindByEmail(ctx context.Context, email st
 
 // FindPendingByEmail finds pending invitations for an email in a tenant
 func (r *PostgresInvitationRepository) FindPendingByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (*invitation.Invitation, error) {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		SELECT
 			id, tenant_id, email, token, scopes, role_id, status, invited_by,
-			expires_at, accepted_at, accepted_by, created_at, updated_at
+			expires_at, accepted_at, accepted_by, created_at, updated_at, version, role_version
 		FROM invitations
 		WHERE email = $1 AND tenant_id = $2 AND status = 'PENDING' AND expires_at > NOW()
 		ORDER BY created_at DESC
@@ -181,12 +180,12 @@ func (r *PostgresInvitationRepository) FindPendingByEmail(ctx context.Context, e
 
 // FindByTenant finds all invitations for a tenant
 func (r *PostgresInvitationRepository) FindByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*invitation.Invitation, error) {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		SELECT
 			id, tenant_id, email, token, scopes, role_id, status, invited_by,
-			expires_at, accepted_at, accepted_by, created_at, updated_at
+			expires_at, accepted_at, accepted_by, created_at, updated_at, version, role_version
 		FROM invitations
 		WHERE tenant_id = $1
 		ORDER BY created_at DESC`
@@ -213,12 +212,12 @@ func (r *PostgresInvitationRepository) FindByTenant(ctx context.Context, tenantI
 
 // FindPendingByTenant finds pending invitations for a tenant
 func (r *PostgresInvitationRepository) FindPendingByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*invitation.Invitation, error) {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		SELECT
 			id, tenant_id, email, token, scopes, role_id, status, invited_by,
-			expires_at, accepted_at, accepted_by, created_at, updated_at
+			expires_at, accepted_at, accepted_by, created_at, updated_at, version, role_version
 		FROM invitations
 		WHERE tenant_id = $1 AND status = 'PENDING' AND expires_at > NOW()
 		ORDER BY created_at DESC`
@@ -245,12 +244,12 @@ func (r *PostgresInvitationRepository) FindPendingByTenant(ctx context.Context, 
 
 // FindExpired finds expired invitations
 func (r *PostgresInvitationRepository) FindExpired(ctx context.Context) ([]*invitation.Invitation, error) {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		SELECT
 			id, tenant_id, email, token, scopes, role_id, status, invited_by,
-			expires_at, accepted_at, accepted_by, created_at, updated_at
+			expires_at, accepted_at, accepted_by, created_at, updated_at, version, role_version
 		FROM invitations
 		WHERE status = 'PENDING' AND expires_at < NOW()`
 
@@ -275,28 +274,22 @@ func (r *PostgresInvitationRepository) FindExpired(ctx context.Context) ([]*invi
 
 // Save saves or updates an invitation
 func (r *PostgresInvitationRepository) Save(ctx context.Context, inv invitation.Invitation) error {
-	// Check if the invitation already exists
-	exists, err := r.invitationExists(ctx, inv.ID)
-	if err != nil {
-		return errx.Wrap(err, "failed to check invitation existence", errx.TypeInternal)
+	if inv.Version == 0 {
+		return r.create(ctx, inv)
 	}
-
-	if exists {
-		return r.update(ctx, inv)
-	}
-	return r.create(ctx, inv)
+	return r.update(ctx, inv)
 }
 
 // create creates a new invitation
 func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitation.Invitation) error {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		INSERT INTO invitations (
 			id, tenant_id, email, token, scopes, role_id, status, invited_by,
-			expires_at, accepted_at, accepted_by, created_at, updated_at
+			expires_at, accepted_at, accepted_by, created_at, updated_at, role_version
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 		)`
 
 	_, err := executor.ExecContext(ctx, query,
@@ -313,6 +306,7 @@ func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitatio
 		inv.AcceptedBy,
 		inv.CreatedAt,
 		inv.UpdatedAt,
+		inv.RoleVersion,
 	)
 
 	if err != nil {
@@ -332,7 +326,7 @@ func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitatio
 
 // update updates an existing invitation
 func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitation.Invitation) error {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		UPDATE invitations SET
@@ -344,7 +338,7 @@ func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitatio
 			accepted_at = $6,
 			accepted_by = $7,
 			updated_at = $8
-		WHERE id = $9`
+		WHERE id = $9 AND status = 'PENDING' AND version = $10`
 
 	result, err := executor.ExecContext(ctx, query,
 		inv.Email,
@@ -356,6 +350,7 @@ func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitatio
 		inv.AcceptedBy,
 		inv.UpdatedAt,
 		inv.ID,
+		inv.Version,
 	)
 
 	if err != nil {
@@ -377,9 +372,9 @@ func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitatio
 
 // Delete deletes an invitation
 func (r *PostgresInvitationRepository) Delete(ctx context.Context, id string) error {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
-	query := `DELETE FROM invitations WHERE id = $1`
+	query := `DELETE FROM invitations WHERE id = $1 AND status <> 'ACCEPTED'`
 
 	result, err := executor.ExecContext(ctx, query, id)
 	if err != nil {
@@ -401,7 +396,7 @@ func (r *PostgresInvitationRepository) Delete(ctx context.Context, id string) er
 
 // ExistsPendingForEmail checks if a pending invitation exists for an email
 func (r *PostgresInvitationRepository) ExistsPendingForEmail(ctx context.Context, email string, tenantID kernel.TenantID) (bool, error) {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `
 		SELECT EXISTS(
@@ -421,7 +416,7 @@ func (r *PostgresInvitationRepository) ExistsPendingForEmail(ctx context.Context
 
 // invitationExists checks if an invitation exists by ID
 func (r *PostgresInvitationRepository) invitationExists(ctx context.Context, id string) (bool, error) {
-	executor := r.getExecutor(ctx)
+	executor := r.db
 
 	query := `SELECT EXISTS(SELECT 1 FROM invitations WHERE id = $1)`
 

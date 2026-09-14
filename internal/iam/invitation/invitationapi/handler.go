@@ -24,6 +24,11 @@ func NewInvitationHandlers(service *invitationsrv.InvitationService) *Invitation
 
 // RegisterRoutes registers the invitation routes in Fiber
 func (h *InvitationHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
+	// Public routes
+	public := router.Group("/invitations/public")
+	public.Get("/validate", h.ValidateInvitationToken)
+	public.Get("/token/:token", h.GetInvitationByToken)
+
 	invitations := router.Group("/invitations", authMiddleware.Authenticate())
 
 	// Protected routes
@@ -32,12 +37,9 @@ func (h *InvitationHandlers) RegisterRoutes(router fiber.Router, authMiddleware 
 	invitations.Get("/pending", authMiddleware.RequireScope(scopes.ScopeInvitationsRead), h.GetPendingInvitations)
 	invitations.Get("/:id", authMiddleware.RequireScope(scopes.ScopeInvitationsRead), h.GetInvitationByID)
 	invitations.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeInvitationsDelete), h.DeleteInvitation)
+	invitations.Post("/:id/resend", authMiddleware.RequireScope(scopes.ScopeInvitationsWrite), h.ResendInvitation)
 	invitations.Post("/:id/revoke", authMiddleware.RequireScope(scopes.ScopeInvitationsRevoke), h.RevokeInvitation)
 
-	// Public routes
-	public := router.Group("/invitations/public")
-	public.Get("/validate", h.ValidateInvitationToken)
-	public.Get("/token/:token", h.GetInvitationByToken)
 }
 
 // CreateInvitation creates a new invitation
@@ -54,12 +56,13 @@ func (h *InvitationHandlers) CreateInvitation(c *fiber.Ctx) error {
 		return err
 	}
 
-	if authContext.UserID == nil {
+	userID, isUser := authContext.Actor.UserID()
+	if !isUser {
 		return iam.ErrUnauthorized()
 	}
 
 	// Create invitation
-	inv, err := h.service.CreateInvitation(c.Context(), authContext.TenantID, *authContext.UserID, authContext.Scopes, req)
+	inv, err := h.service.CreateInvitation(c.Context(), authContext.TenantID, userID, authContext.Scopes, req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -225,4 +228,15 @@ func (h *InvitationHandlers) DeleteInvitation(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "Invitation deleted successfully",
 	})
+}
+
+func (h *InvitationHandlers) ResendInvitation(c *fiber.Ctx) error {
+	ac, ok := auth.GetAuthContext(c)
+	if !ok {
+		return iam.ErrUnauthorized()
+	}
+	if err := h.service.ResendInvitation(c.Context(), c.Params("id"), ac.TenantID); err != nil {
+		return err
+	}
+	return c.JSON(fiber.Map{"message": "Invitation resent"})
 }

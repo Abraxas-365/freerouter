@@ -8,7 +8,7 @@ import (
 )
 
 // ValidateTenantAccess middleware to validate access to a specific tenant.
-// Users with "*" scope can access any tenant.
+// Scope wildcards never bypass tenant ownership.
 func ValidateTenantAccess() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		tenantIDParam := c.Params("tenantId")
@@ -19,7 +19,7 @@ func ValidateTenantAccess() fiber.Handler {
 			})
 		}
 
-		if authContext.TenantID.String() != tenantIDParam && !authContext.HasScope("*") {
+		if authContext.TenantID.String() != tenantIDParam {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 				"error": "Access denied to this tenant",
 			})

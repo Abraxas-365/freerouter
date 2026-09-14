@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/errx"
@@ -30,8 +31,8 @@ type CreateWebhookRequest struct {
 }
 
 func (r *CreateWebhookRequest) Validate() error {
-	if r.URL == "" {
-		return errx.Validation("url is required").WithDetail("field", "url")
+	if err := ValidateURL(r.URL); err != nil {
+		return err
 	}
 	if len(r.Events) == 0 {
 		return errx.Validation("at least one event is required").WithDetail("field", "events")
@@ -134,3 +135,25 @@ var (
 )
 
 func ErrWebhookNotFound() *errx.Error { return ErrRegistry.New(CodeWebhookNotFound) }
+
+func ValidateURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
+		return errx.Validation("Webhook URL must be HTTP(S), without credentials or fragments").WithDetail("field", "url")
+	}
+	return nil
+}
+
+func (r *UpdateWebhookRequest) Validate() error {
+	if r.URL != nil {
+		if err := ValidateURL(*r.URL); err != nil {
+			return err
+		}
+	}
+	for _, event := range r.Events {
+		if !IsValidEvent(event) {
+			return errx.Validation("Invalid webhook event")
+		}
+	}
+	return nil
+}

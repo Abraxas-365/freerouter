@@ -87,7 +87,7 @@ func (h *WebhookHandlers) getOwnedWebhook(c *fiber.Ctx) (*webhook.WebhookConfig,
 	if err != nil {
 		return nil, err
 	}
-	if w.TenantID != authCtx.TenantID && !authCtx.HasScope("*") {
+	if w.TenantID != authCtx.TenantID {
 		return nil, fiber.NewError(fiber.StatusNotFound, "webhook not found")
 	}
 	return w, nil

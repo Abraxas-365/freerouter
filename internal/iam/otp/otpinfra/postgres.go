@@ -132,8 +132,9 @@ func (r *PostgresOTPRepository) GetLatestByContact(ctx context.Context, contact 
 func (r *PostgresOTPRepository) Update(ctx context.Context, o *otp.OTP) error {
 	query := `
         UPDATE otps
-        SET verified_at = $1, attempts = $2, updated_at = $3
-        WHERE id = $4
+        SET verified_at = $1, attempts = attempts + 1, updated_at = $2
+        WHERE id = $3 AND verified_at IS NULL
+ AND expires_at > NOW() AND attempts < max_attempts
     `
 
 	var verifiedAt interface{}
@@ -145,7 +146,6 @@ func (r *PostgresOTPRepository) Update(ctx context.Context, o *otp.OTP) error {
 		ctx,
 		query,
 		verifiedAt,
-		o.Attempts,
 		time.Now(),
 		o.ID,
 	)
@@ -160,7 +160,7 @@ func (r *PostgresOTPRepository) Update(ctx context.Context, o *otp.OTP) error {
 	}
 
 	if rows == 0 {
-		return errx.New("OTP not found", errx.TypeNotFound)
+		return otp.ErrInvalidOTP()
 	}
 
 	return nil

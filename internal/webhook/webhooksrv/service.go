@@ -37,7 +37,7 @@ type WebhookService struct {
 func NewWebhookService(repo webhook.WebhookRepository) *WebhookService {
 	return &WebhookService{
 		repo:   repo,
-		client: &http.Client{Timeout: deliveryTimeout},
+		client: publicWebhookClient(),
 		stopCh: make(chan struct{}),
 	}
 }
@@ -71,6 +71,9 @@ func (s *WebhookService) Stop() {
 // ============================================================================
 
 func (s *WebhookService) Create(ctx context.Context, tenantID kernel.TenantID, req webhook.CreateWebhookRequest) (*webhook.WebhookConfig, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	secret := generateSecret()
 	w := &webhook.WebhookConfig{
 		ID:        kernel.NewWebhookID(uuid.NewString()),
@@ -97,6 +100,9 @@ func (s *WebhookService) List(ctx context.Context, tenantID kernel.TenantID) ([]
 }
 
 func (s *WebhookService) Update(ctx context.Context, id kernel.WebhookID, req webhook.UpdateWebhookRequest) (*webhook.WebhookConfig, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	w, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -190,6 +196,10 @@ func (s *WebhookService) deliver(cfg *webhook.WebhookConfig, d *webhook.WebhookD
 
 	d.Attempts++
 
+	if err := webhook.ValidateURL(cfg.URL); err != nil {
+		s.markFailed(ctx, d, 0, err)
+		return
+	}
 	// Sign the payload
 	sig := sign(d.Payload, cfg.Secret)
 

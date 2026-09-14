@@ -14,7 +14,7 @@ type RoleRepository interface {
 	Delete(ctx context.Context, id string, tenantID kernel.TenantID) error
 
 	// User-role assignments
-	AssignToUser(ctx context.Context, userRole UserRole) error
+	AssignToUser(ctx context.Context, userRole UserRole, expectedVersion int64) error
 	UnassignFromUser(ctx context.Context, userID kernel.UserID, roleID string, tenantID kernel.TenantID) error
 	FindByUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) ([]*Role, error)
 }

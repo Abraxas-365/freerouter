@@ -1,45 +1,83 @@
-<h1 align="center">
-    🛰️ FreeRouter
-</h1>
-<p align="center">
-    <p align="center">Self-Hosted LLM Gateway</p>
-    <p align="center">Open source, multi-tenant AI gateway for 8+ LLM providers. One OpenAI-compatible API with built-in billing, wallets, guardrails, and observability — all in a single Go binary.</p>
+<div align="center">
+
+<img src="docs/assets/freerouter-banner.svg" alt="FreeRouter — One gateway. Your infrastructure. A self-hosted LLM gateway for routing models and managing budgets." width="1200" />
+
+# FreeRouter
+
+**Your models. Your budgets. Your gateway.**
+
+A self-hosted, multi-tenant LLM gateway with a Go backend and React dashboard.<br />
+Connect your providers through a unified API, with routing, billing, guardrails, and observability.
+
+<p>
+  <a href="go.mod"><img src="https://img.shields.io/badge/Backend-Go-00ADD8?style=flat-square&amp;logo=go&amp;logoColor=white" alt="Go backend" /></a>
+  <a href="web/"><img src="https://img.shields.io/badge/Dashboard-React-64b5ff?style=flat-square&amp;logo=react&amp;logoColor=white" alt="React dashboard" /></a>
+  <a href="docker-compose.yml"><img src="https://img.shields.io/badge/Data-PostgreSQL_%2B_Redis-8ba6bf?style=flat-square" alt="PostgreSQL and Redis" /></a>
+  <a href="#internal--self-hosted-deployments-no-stripe"><img src="https://img.shields.io/badge/Billing-Pay_per_token-65e5b5?style=flat-square" alt="Pay-per-token billing" /></a>
 </p>
-<h4 align="center">
-    <a href="https://github.com/Abraxas-365/freerouter" target="_blank">
-        <img src="https://img.shields.io/github/stars/Abraxas-365/freerouter?style=social" alt="GitHub Stars">
-    </a>
-    <img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" alt="Go 1.25">
-    <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
-    <img src="https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white" alt="PostgreSQL 16">
-    <img src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white" alt="Redis 7">
-</h4>
+
+**[Get started](#quick-start)** &nbsp; · &nbsp;
+**[Explore features](#features)** &nbsp; · &nbsp;
+**[API reference](#api-overview)** &nbsp; · &nbsp;
+**[Architecture](#architecture)** &nbsp; · &nbsp;
+**[Contribute](#contributing)**
+
+</div>
 
 ---
 
 ## What is FreeRouter
 
+> **Tenant IAM update:** `*` is tenant-local, shared catalogs are read-only in the customer API, and membership is invitation-based. See the [IAM model and migrations 018–019 rollout guide](docs/tenant-iam.md) before upgrading; all users must sign in again.
+
 FreeRouter is a self-hosted LLM gateway that sits between your applications and AI providers. Send requests in **OpenAI**, **Anthropic**, or **Responses API** format — FreeRouter translates and routes them to the cheapest healthy provider key across OpenAI, Anthropic, Google AI Studio, Mistral, DeepSeek, xAI, Groq, and Together AI.
 
 It's built for teams that resell or meter LLM access: every request is authenticated, guardrail-checked, rate-limited, cost-tracked, and debited from a tenant balance — pay-per-token, no subscriptions.
 
-```
-Client ──► Auth ──► Guardrails ──► Rate Limiter ──► Router ──► Provider
-                                                       │
-              Billing debit ◄── Usage log ◄── Webhooks ┘
+```mermaid
+flowchart LR
+    App["Your applications"] --> Gateway["FreeRouter"]
+    Gateway --> OpenAI["OpenAI"]
+    Gateway --> Anthropic["Anthropic"]
+    Gateway --> More["Other providers"]
+    Gateway -.-> Controls["Budgets · Guardrails · Usage"]
+
+    style App fill:#13263a,stroke:#3b627d,color:#eef6ff
+    style Gateway fill:#12332f,stroke:#65e5b5,color:#86f1c8,stroke-width:2px
+    style OpenAI fill:#13263a,stroke:#64b5ff,color:#eef6ff
+    style Anthropic fill:#13263a,stroke:#64b5ff,color:#eef6ff
+    style More fill:#13263a,stroke:#64b5ff,color:#eef6ff
+    style Controls fill:#13263a,stroke:#3b627d,color:#c6dbed
 ```
 
 ---
 
 ## Why FreeRouter
 
-- **One API, many providers** — OpenAI-compatible `/v1/*` endpoints; swap models across 8 providers without changing client code
-- **Cheapest-healthy routing** — picks the lowest-cost healthy provider key per request, with retry, provider fallback, and model fallback chains
-- **Multi-tenant by design** — tenants, users, roles, scoped permissions, invitations, and API keys with per-key model restrictions
-- **Real billing, not a stub** — credit balances, Stripe checkout for top-ups, spending limits, per-request token-cost debit, and **wallets** (named sub-balances bound to API keys for hard budget isolation per customer/team/environment)
-- **Guardrails before the provider** — PII detection, secret detection, and custom regex rules with block or redact actions
-- **Full observability** — Prometheus metrics, request/response content logging with debug mode, usage analytics, and webhook event delivery
-- **Single Go binary + React dashboard** — no sidecar services beyond PostgreSQL and Redis
+<table>
+<tr>
+<td width="50%" valign="top">
+<h3>01 · Connect once, route across providers</h3>
+<p>Use OpenAI-compatible endpoints, Anthropic Messages, or the Responses API. Route through healthy provider keys with retry and fallback support.</p>
+</td>
+<td width="50%" valign="top">
+<h3>02 · Make every token accountable</h3>
+<p>Track usage and costs against tenant balances. Use named wallets for team, customer, or environment budgets. Add Stripe top-ups when you need them.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<h3>03 · Put controls at the gateway</h3>
+<p>Scoped API keys, model restrictions, rate limits, and content guardrails give you a central place to configure access and request policies.</p>
+</td>
+<td width="50%" valign="top">
+<h3>04 · Operate on your infrastructure</h3>
+<p>Run the Go backend with PostgreSQL and Redis. Manage it through the React dashboard and inspect usage, Prometheus metrics, and webhook delivery.</p>
+</td>
+</tr>
+</table>
+
+**One gateway for access, routing, and metering. No subscription tiers—pay per token.**
 
 ---
 
@@ -50,7 +88,7 @@ Client ──► Auth ──► Guardrails ──► Rate Limiter ──► Rout
 | **Gateway** | Chat completions, Anthropic Messages, Responses API, embeddings, image generation, streaming (SSE), cost estimation |
 | **Routing** | Cheapest-healthy-key selection, retry + provider fallback, model fallback chains, per-tenant routing config |
 | **Auth** | OAuth (Google, Microsoft), passwordless email OTP, JWT with refresh, API keys with scopes + model restrictions |
-| **Billing** | Credit balance, Stripe checkout top-ups, manual adjustments, per-request debit, daily/monthly spending limits |
+| **Billing** | Credit balance, Stripe checkout top-ups, operator-provisioned credits, per-request debit, daily/monthly spending limits |
 | **Wallets** | Named sub-balances per tenant; fund/withdraw atomically from main balance; bind API keys to a wallet for hard budget caps |
 | **Rate limiting** | Per-tenant RPM + concurrency limits (Redis-backed), configurable via API |
 | **Guardrails** | PII detection, secret detection, custom regex rules; block or redact; violation logs |
@@ -126,6 +164,9 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
+<details>
+<summary><strong>More request examples · Anthropic Messages and cost estimation</strong></summary>
+
 ```bash
 # Anthropic Messages format — same gateway
 curl http://localhost:8080/v1/messages \
@@ -146,6 +187,8 @@ curl http://localhost:8080/v1/cost/estimate \
   -d '{"model": "gpt-4o", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
+</details>
+
 ---
 
 ## API Overview
@@ -164,11 +207,14 @@ curl http://localhost:8080/v1/cost/estimate \
 
 ### Management (`/api/v1/*`, JWT or API key + scopes)
 
+<details>
+<summary><strong>Management API · providers, billing, wallets, usage, and IAM</strong></summary>
+
 | Area | What you can do |
 |---|---|
-| **Providers** | CRUD providers, models, model↔provider mappings, fallback chains |
+| **Providers** | Read shared providers, models, model↔provider mappings, fallback chains |
 | **Provider keys** | Manage encrypted upstream API keys (BYOK) |
-| **Billing** | Balance, Stripe checkout, top-up, adjustments, transactions, spending limits |
+| **Billing** | Balance, paid Stripe checkout, transactions, spending limits |
 | **Wallets** | Create/list/update/delete wallets, fund/withdraw from main balance |
 | **Usage** | Query request logs, usage summaries, data retention config |
 | **Guardrails** | Content filtering rules and violation logs |
@@ -176,18 +222,25 @@ curl http://localhost:8080/v1/cost/estimate \
 | **Webhooks** | Event subscriptions and delivery history |
 | **IAM** | API keys, users, roles, invitations |
 
+</details>
+
 ### Auth
+
+<details>
+<summary><strong>Authentication endpoints · signup, login, sessions, and Stripe events</strong></summary>
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/auth/login` | OAuth login (Google, Microsoft) |
 | `GET` | `/auth/callback/:provider` | OAuth callback |
-| `POST` | `/auth/passwordless/signup/initiate` · `/verify` | Passwordless signup with email OTP |
+| `POST` | `/auth/passwordless/signup/initiate` · `/verify` | Invitation-only signup with verified email OTP |
 | `POST` | `/auth/passwordless/login/initiate` · `/verify` | Passwordless login |
 | `POST` | `/auth/refresh` | Refresh JWT |
 | `POST` | `/auth/logout` | Logout |
 | `GET` | `/auth/me` | Current user |
 | `POST` | `/webhooks/stripe` | Stripe webhook (signature-verified) |
+
+</details>
 
 ---
 
@@ -216,7 +269,7 @@ Stripe is optional. If `STRIPE_SECRET_KEY` is unset:
 
 - The `/webhooks/stripe` route is not registered and checkout requests return a clean error
 - The dashboard hides the "Buy credits" flow (`GET /api/v1/billing/config` reports `stripe_enabled: false`)
-- Admins grant credits directly with `POST /api/v1/billing/top-up` and `POST /api/v1/billing/adjust` (`billing:admin` scope)
+- Credits must be provisioned by controlled operator tooling outside the customer API; tenant admins cannot mint credits with top-up or adjustment routes
 - Everything else keeps working: spending limits, wallets (per-team/env budgets), usage tracking, and metrics — useful as internal budget and chargeback tools
 
 No separate build or branch needed — it's the same binary, just without the Stripe env vars.
@@ -225,7 +278,7 @@ No separate build or branch needed — it's the same binary, just without the St
 
 ## Metrics
 
-Prometheus endpoint at `GET /metrics` (namespace `freerouter_gateway_*`):
+Global metrics are not exposed on the customer HTTP listener. Instrumentation remains available for future private operator integration (namespace `freerouter_gateway_*`):
 
 | Metric | Labels |
 |---|---|
@@ -308,3 +361,13 @@ Use conventional commits (`type(scope): subject`) and keep commits atomic.
 ## License
 
 MIT
+
+---
+
+<div align="center">
+
+**Connect your providers. Set your policies. Own the gateway.**
+
+[Quick start](#quick-start) &nbsp; / &nbsp; [API reference](#api-overview) &nbsp; / &nbsp; [Configuration](#configuration) &nbsp; / &nbsp; [Contributing](#contributing)
+
+</div>

@@ -34,6 +34,9 @@ func NewUserService(
 
 // CreateUser creates a new user
 func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest) (*user.User, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	// Validate that the tenant exists and is active
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, req.TenantID)
 	if err != nil {
@@ -142,7 +145,10 @@ func (s *UserService) GetUsersByTenant(ctx context.Context, tenantID kernel.Tena
 }
 
 // UpdateUser updates a user
-func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req user.UpdateUserRequest) (*user.User, error) {
+func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, callerScopes []string, req user.UpdateUserRequest) (*user.User, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	userEntity, err := s.userRepo.FindByID(ctx, userID, req.TenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
@@ -153,23 +159,17 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 		userEntity.Name = *req.Name
 	}
 
-	if req.Status != nil {
-		switch *req.Status {
-		case user.UserStatusActive:
-			if err := userEntity.Activate(); err != nil {
-				return nil, err
-			}
-		case user.UserStatusSuspended:
-			if err := userEntity.Suspend("Updated by admin"); err != nil {
-				return nil, err
+	// Update scopes if provided
+	if req.Scopes != nil {
+		for _, scope := range req.Scopes {
+			if !kernel.ScopesContain(callerScopes, scope) {
+				return nil, user.ErrInvalidScopes().WithDetail("scope", scope)
 			}
 		}
-	}
-
-	// Update scopes if provided
-	if len(req.Scopes) > 0 {
-		if err := s.validateScopes(req.Scopes); err != nil {
-			return nil, err
+		if len(req.Scopes) > 0 {
+			if err := s.validateScopes(req.Scopes); err != nil {
+				return nil, err
+			}
 		}
 		userEntity.SetScopes(req.Scopes)
 	}
@@ -184,22 +184,28 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 	return userEntity, nil
 }
 
-// ActivateUser activates a pending user
-func (s *UserService) ActivateUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
+// ReinstateUser restores only suspended, verified membership
+func (s *UserService) ReinstateUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
 	}
 
-	if err := userEntity.Activate(); err != nil {
-		return err
+	if userEntity.Status != user.UserStatusSuspended || !userEntity.EmailVerified {
+		return user.ErrInvalidStatus()
 	}
+	userEntity.Status = user.UserStatusActive
+	userEntity.UpdatedAt = time.Now().UTC()
 
 	return s.userRepo.Save(ctx, *userEntity)
 }
 
 // SuspendUser suspends a user
 func (s *UserService) SuspendUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, reason string) error {
+	req := user.SuspendUserRequest{Reason: reason}
+	if err := req.Validate(); err != nil {
+		return err
+	}
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
@@ -225,14 +231,6 @@ func (s *UserService) DeleteUser(ctx context.Context, userID kernel.UserID, tena
 		return errx.Wrap(err, "failed to delete user", errx.TypeInternal)
 	}
 
-	// Decrement tenant user counter (best-effort — not transactional with user delete)
-	if tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID); err == nil {
-		tenantEntity.RemoveUser()
-		if err := s.tenantRepo.Save(ctx, *tenantEntity); err != nil {
-			_ = err // user deleted successfully, counter drift is non-fatal
-		}
-	}
-
 	return nil
 }
 
@@ -242,6 +240,10 @@ func (s *UserService) DeleteUser(ctx context.Context, userID kernel.UserID, tena
 
 // AddScopesToUser adds scopes to a user
 func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopes []string) error {
+	req := user.AddScopesRequest{Scopes: scopes}
+	if err := req.Validate(); err != nil {
+		return err
+	}
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
@@ -264,9 +266,11 @@ func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID,
 
 // RemoveScopesFromUser removes scopes from a user
 func (s *UserService) RemoveScopesFromUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopeList []string) error {
-	if err := s.validateScopes(scopeList); err != nil {
+	req := user.RemoveScopesRequest{Scopes: scopeList}
+	if err := req.Validate(); err != nil {
 		return err
 	}
+	// Retired grants may still be removed even when no longer in the catalog.
 
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
@@ -349,6 +353,9 @@ func (s *UserService) GetAllAvailableScopes() *user.AvailableScopesResponse {
 
 // resolveScopes determines the final scopes based on the request
 func (s *UserService) resolveScopes(req user.CreateUserRequest) ([]string, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	if len(req.Scopes) > 0 {
 		return req.Scopes, nil
 	}

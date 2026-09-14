@@ -21,15 +21,10 @@ func NewPostgresRoleRepository(db *sqlx.DB) role.RoleRepository {
 }
 
 func (r *PostgresRoleRepository) Save(ctx context.Context, rl role.Role) error {
-	exists, err := r.roleExists(ctx, rl.ID)
-	if err != nil {
-		return errx.Wrap(err, "failed to check role existence", errx.TypeInternal)
+	if rl.Version == 0 {
+		return r.create(ctx, rl)
 	}
-
-	if exists {
-		return r.update(ctx, rl)
-	}
-	return r.create(ctx, rl)
+	return r.update(ctx, rl)
 }
 
 func (r *PostgresRoleRepository) create(ctx context.Context, rl role.Role) error {
@@ -55,7 +50,7 @@ func (r *PostgresRoleRepository) update(ctx context.Context, rl role.Role) error
 			description = :description,
 			scopes = :scopes,
 			updated_at = :updated_at
-		WHERE id = :id AND tenant_id = :tenant_id`
+		WHERE id = :id AND tenant_id = :tenant_id AND version = :version`
 
 	p := toPersistence(rl)
 	result, err := r.db.NamedExecContext(ctx, query, p)
@@ -137,18 +132,29 @@ func (r *PostgresRoleRepository) Delete(ctx context.Context, id string, tenantID
 	return tx.Commit()
 }
 
-func (r *PostgresRoleRepository) AssignToUser(ctx context.Context, userRole role.UserRole) error {
+func (r *PostgresRoleRepository) AssignToUser(ctx context.Context, userRole role.UserRole, expectedVersion int64) error {
 	query := `
-		INSERT INTO user_roles (user_id, role_id, tenant_id, assigned_at)
-		VALUES ($1, $2, $3, $4)`
+		WITH authorized_role AS MATERIALIZED (
+ SELECT id FROM roles WHERE id = $2 AND tenant_id = $3 AND version = $5 FOR SHARE
+ ), member AS MATERIALIZED (
+ SELECT id FROM users WHERE id = $1 AND tenant_id = $3 FOR SHARE
+ ) INSERT INTO user_roles (user_id, role_id, tenant_id, assigned_at)
+ SELECT member.id, authorized_role.id, $3, $4 FROM authorized_role CROSS JOIN member`
 
-	_, err := r.db.ExecContext(ctx, query,
-		userRole.UserID.String(), userRole.RoleID, userRole.TenantID.String(), userRole.AssignedAt)
+	result, err := r.db.ExecContext(ctx, query,
+		userRole.UserID.String(), userRole.RoleID, userRole.TenantID.String(), userRole.AssignedAt, expectedVersion)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			return role.ErrRoleAlreadyAssigned()
 		}
 		return errx.Wrap(err, "failed to assign role to user", errx.TypeInternal)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return role.ErrRoleNotFound()
 	}
 	return nil
 }
@@ -190,6 +196,7 @@ func (r *PostgresRoleRepository) roleExists(ctx context.Context, id string) (boo
 
 // Persistence model
 type rolePersistence struct {
+	Version     int64           `db:"version"`
 	ID          string          `db:"id"`
 	TenantID    kernel.TenantID `db:"tenant_id"`
 	Name        string          `db:"name"`
@@ -201,6 +208,7 @@ type rolePersistence struct {
 
 func toPersistence(rl role.Role) rolePersistence {
 	return rolePersistence{
+		Version:     rl.Version,
 		ID:          rl.ID,
 		TenantID:    rl.TenantID,
 		Name:        rl.Name,
@@ -213,6 +221,7 @@ func toPersistence(rl role.Role) rolePersistence {
 
 func toDomain(p rolePersistence) role.Role {
 	return role.Role{
+		Version:     p.Version,
 		ID:          p.ID,
 		TenantID:    p.TenantID,
 		Name:        p.Name,

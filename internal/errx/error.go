@@ -116,6 +116,12 @@ func Is(err, target error) bool {
 	return errors.Is(err, target)
 }
 
+// IsNotFound distinguishes expected absence from persistence failures.
+func IsNotFound(err error) bool {
+	var target *Error
+	return errors.As(err, &target) && target.Type == TypeNotFound
+}
+
 // As finds the first error in err's chain that matches target
 func As(err error, target interface{}) bool {
 	return errors.As(err, target)

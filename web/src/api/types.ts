@@ -652,7 +652,6 @@ export interface UpdateApiKeyRequest {
   description?: string
   scopes?: string[]
   allowed_models?: string[]
-  is_active?: boolean
   wallet_id?: string
 }
 
@@ -688,7 +687,6 @@ export interface CreateUserRequest {
 
 export interface UpdateUserRequest {
   name?: string
-  status?: UserStatus
   scopes?: string[]
 }
 

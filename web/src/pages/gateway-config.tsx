@@ -15,7 +15,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-const TENANT_ID = "default"
 
 const STRATEGY_META: Record<RoutingStrategy, { label: string; description: string; icon: typeof Zap }> = {
   cheapest: {
@@ -37,6 +36,7 @@ const STRATEGY_META: Record<RoutingStrategy, { label: string; description: strin
 
 export default function GatewayConfigPage() {
   const api = useApi()
+  const [tenantID, setTenantID] = useState<string | null>(null)
 
   const [rateLimit, setRateLimit] = useState<RateLimitConfig | null>(null)
   const [routing, setRouting] = useState<RoutingConfig | null>(null)
@@ -58,9 +58,11 @@ export default function GatewayConfigPage() {
   const [cacheMsg, setCacheMsg] = useState("")
 
   async function load() {
+    const tenantID = await api.currentTenant()
+    setTenantID(tenantID)
     const [rl, rt] = await Promise.all([
-      api.gatewayConfig.getRateLimit(TENANT_ID).catch(() => null),
-      api.gatewayConfig.getRouting(TENANT_ID).catch(() => null),
+      api.gatewayConfig.getRateLimit(tenantID).catch(() => null),
+      api.gatewayConfig.getRouting(tenantID).catch(() => null),
     ])
     setRateLimit(rl)
     setRouting(rt)
@@ -77,8 +79,9 @@ export default function GatewayConfigPage() {
   useEffect(() => { load() }, [api])
 
   async function saveRateLimit() {
+    if (!tenantID) return
     setRlSaving(true)
-    const saved = await api.gatewayConfig.upsertRateLimit(TENANT_ID, {
+    const saved = await api.gatewayConfig.upsertRateLimit(tenantID, {
       rpm: Number(rpm) || undefined,
       max_concurrent: Number(maxConcurrent) || undefined,
     })
@@ -88,12 +91,13 @@ export default function GatewayConfigPage() {
   }
 
   async function saveRouting() {
+    if (!tenantID) return
     setRtSaving(true)
     if (strategy) {
-      const saved = await api.gatewayConfig.upsertRouting(TENANT_ID, { strategy })
+      const saved = await api.gatewayConfig.upsertRouting(tenantID, { strategy })
       setRouting(saved)
     } else {
-      await api.gatewayConfig.deleteRouting(TENANT_ID).catch(() => {})
+      await api.gatewayConfig.deleteRouting(tenantID).catch(() => {})
       setRouting(null)
     }
     setRtDirty(false)
@@ -101,8 +105,9 @@ export default function GatewayConfigPage() {
   }
 
   async function invalidateCache() {
+    if (!tenantID) return
     setCacheInvalidating(true)
-    await api.gatewayConfig.invalidateCache(TENANT_ID)
+    await api.gatewayConfig.invalidateCache(tenantID)
     setCacheMsg("Cache invalidated")
     setCacheInvalidating(false)
     setTimeout(() => setCacheMsg(""), 3000)

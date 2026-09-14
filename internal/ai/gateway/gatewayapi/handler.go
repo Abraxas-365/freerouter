@@ -135,7 +135,7 @@ func (h *GatewayHandlers) SetRoutingConfigRepo(repo gateway.RoutingConfigReposit
 // checkModelAccess verifies that the API key (if used) is allowed to access
 // the requested model. If AllowedModels is empty, all models are allowed.
 func (h *GatewayHandlers) checkModelAccess(authCtx *kernel.AuthContext, model string) error {
-	if !authCtx.IsAPIKey || len(authCtx.AllowedModels) == 0 {
+	if !authCtx.Actor.IsAPIKey() || len(authCtx.AllowedModels) == 0 {
 		return nil
 	}
 	for _, m := range authCtx.AllowedModels {
@@ -169,7 +169,6 @@ func (h *GatewayHandlers) RegisterAdminRoutes(router fiber.Router, authMiddlewar
 	rl.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeRateLimitsWrite), auth.ValidateTenantAccess(), h.DeleteRateLimitConfig)
 
 	cache := router.Group("/cache", authMiddleware.Authenticate())
-	cache.Delete("/", authMiddleware.RequireScope(scopes.PlatformAdmin), h.InvalidateCacheAll)
 	cache.Delete("/:tenantId", authMiddleware.RequireScope(scopes.ScopeGatewayChat), auth.ValidateTenantAccess(), h.InvalidateCacheTenant)
 
 	routing := router.Group("/routing", authMiddleware.Authenticate())
@@ -340,6 +339,7 @@ func (h *GatewayHandlers) ChatCompletions(c *fiber.Ctx) error {
 }
 
 func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, req *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, walletID *kernel.WalletID, cacheKey string) error {
+	actor := requestActor(c)
 	maxAttempts := gateway.MaxRetries + 1
 	if maxAttempts > len(routes) {
 		maxAttempts = len(routes)
@@ -392,7 +392,7 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 				h.metrics.ObserveRequest(requestedModel, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusError, duration)
 				h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", statusCode))
 			}
-			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err, nil)
+			h.usage.LogRequest(tenantID, actor, route, requestedModel, nil, statusCode, duration, false, err, nil)
 			return err
 		}
 
@@ -420,18 +420,19 @@ func (h *GatewayHandlers) handleNonStreamWithRetry(c *fiber.Ctx, routes []*gatew
 			}
 		}
 
-		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil, buildRequestContent(c, req.Messages, resp, body))
+		h.usage.LogRequest(tenantID, actor, route, requestedModel, resp, http.StatusOK, duration, false, nil, buildRequestContent(c, req.Messages, resp, body))
 		h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 		return c.JSON(resp)
 	}
 
 	// All retries exhausted
-	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr, nil)
+	h.usage.LogRequest(tenantID, actor, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr, nil)
 	h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	return lastErr
 }
 
 func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, req *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, walletID *kernel.WalletID, _ []byte) error {
+	actor := requestActor(c)
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
@@ -491,7 +492,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 					debitCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
 					defer dc()
 					h.debitUsage(debitCtx, tenantID, walletID, cost)
-					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr, nil)
+					h.usage.LogRequest(tenantID, actor, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr, nil)
 					return
 				}
 
@@ -524,7 +525,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 				errJSON, _ := json.Marshal(fiber.Map{"error": streamErr.Error()})
 				fmt.Fprintf(w, "data: %s\n\n", errJSON)
 				w.Flush()
-				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr, nil)
+				h.usage.LogRequest(tenantID, actor, route, requestedModel, nil, upstreamStatus, duration, true, streamErr, nil)
 				return
 			}
 
@@ -551,7 +552,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 				}
 			}
 
-			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil, buildStreamRequestContent(debugMode, rawBody, req.Messages))
+			h.usage.LogRequest(tenantID, actor, route, requestedModel, resp, http.StatusOK, duration, true, nil, buildStreamRequestContent(debugMode, rawBody, req.Messages))
 			h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 			return
 		}
@@ -560,7 +561,7 @@ func (h *GatewayHandlers) handleStreamWithRetry(c *fiber.Ctx, routes []*gateway.
 		errJSON, _ := json.Marshal(fiber.Map{"error": fmt.Sprintf("all %d stream attempts failed: %v", maxAttempts, lastErr)})
 		fmt.Fprintf(w, "data: %s\n\n", errJSON)
 		w.Flush()
-		h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr, nil)
+		h.usage.LogRequest(tenantID, actor, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr, nil)
 		h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	})
 
@@ -591,7 +592,7 @@ func (h *GatewayHandlers) checkRateLimit(c *fiber.Ctx, tenantID kernel.TenantID)
 	}
 	result, err := h.rateLimiter.Check(c.Context(), tenantID.String())
 	if err != nil {
-		return nil // fail open
+		return fiber.NewError(fiber.StatusServiceUnavailable, "Request limits unavailable")
 	}
 	if result.Limit > 0 {
 		c.Set("X-RateLimit-Limit", fmt.Sprintf("%d", result.Limit))
@@ -602,13 +603,7 @@ func (h *GatewayHandlers) checkRateLimit(c *fiber.Ctx, tenantID kernel.TenantID)
 		if h.metrics != nil {
 			h.metrics.ObserveRateLimit("rpm_or_concurrency")
 		}
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
-			"error": fiber.Map{
-				"message": "Rate limit exceeded",
-				"type":    "rate_limit_error",
-				"code":    "rate_limit_exceeded",
-			},
-		})
+		return fiber.NewError(fiber.StatusTooManyRequests, "Rate limit exceeded")
 	}
 	return nil
 }
@@ -633,21 +628,18 @@ func (h *GatewayHandlers) debitUsage(ctx context.Context, tenantID kernel.Tenant
 // checkWalletBalance rejects the request with 402 when the API key is bound to
 // a wallet that has no funds left.
 func (h *GatewayHandlers) checkWalletBalance(c *fiber.Ctx, authCtx *kernel.AuthContext) error {
-	if authCtx.WalletID == nil || authCtx.WalletID.IsEmpty() || h.wallet == nil {
+	if authCtx.WalletID == nil || authCtx.WalletID.IsEmpty() {
 		return nil
+	}
+	if h.wallet == nil {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "Wallet service unavailable")
 	}
 	ok, err := h.wallet.HasSufficientFunds(c.Context(), authCtx.TenantID, *authCtx.WalletID)
 	if err != nil {
-		return nil // fail open, like checkSpendingLimit
+		return fiber.NewError(fiber.StatusServiceUnavailable, "Wallet eligibility unavailable")
 	}
 	if !ok {
-		return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
-			"error": fiber.Map{
-				"message": "Wallet has insufficient funds",
-				"type":    "insufficient_funds_error",
-				"code":    "wallet_insufficient_funds",
-			},
-		})
+		return fiber.NewError(fiber.StatusPaymentRequired, "Wallet has insufficient funds")
 	}
 	return nil
 }
@@ -659,16 +651,10 @@ func (h *GatewayHandlers) checkSpendingLimit(c *fiber.Ctx, tenantID kernel.Tenan
 	}
 	result, err := h.billing.CheckSpendingLimit(c.Context(), tenantID)
 	if err != nil {
-		return nil // fail open
+		return fiber.NewError(fiber.StatusServiceUnavailable, "Request limits unavailable")
 	}
 	if !result.Allowed {
-		return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
-			"error": fiber.Map{
-				"message": result.Reason,
-				"type":    "spending_limit_error",
-				"code":    "spending_limit_exceeded",
-			},
-		})
+		return fiber.NewError(fiber.StatusPaymentRequired, result.Reason)
 	}
 	return nil
 }
@@ -901,4 +887,13 @@ func applyRedactions(messages []gateway.Message, redactions []guardrails.Redacti
 			msg.Content = guardrails.ApplyRedactions(text, allMatches)
 		}
 	}
+}
+
+// Capture identity while the Fiber context is still owned by this request.
+func requestActor(c *fiber.Ctx) kernel.Actor {
+	ac, ok := auth.GetAuthContext(c)
+	if !ok {
+		return kernel.Actor{}
+	}
+	return ac.Actor
 }

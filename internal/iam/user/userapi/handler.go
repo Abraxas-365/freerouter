@@ -21,12 +21,11 @@ func NewUserHandlers(service *usersrv.UserService) *UserHandlers {
 func (h *UserHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	users := router.Group("/users", authMiddleware.Authenticate())
 
-	users.Post("/", authMiddleware.RequireScope(scopes.ScopeUsersWrite), h.CreateUser)
 	users.Get("/", authMiddleware.RequireScope(scopes.ScopeUsersRead), h.GetTenantUsers)
 	users.Get("/:id", authMiddleware.RequireScope(scopes.ScopeUsersRead), h.GetUser)
 	users.Put("/:id", authMiddleware.RequireScope(scopes.ScopeUsersWrite), h.UpdateUser)
 	users.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeUsersDelete), h.DeleteUser)
-	users.Post("/:id/activate", authMiddleware.RequireScope(scopes.ScopeUsersWrite), h.ActivateUser)
+	users.Post("/:id/reinstate", authMiddleware.RequireScope(scopes.ScopeUsersWrite), h.ReinstateUser)
 	users.Post("/:id/suspend", authMiddleware.RequireScope(scopes.ScopeUsersWrite), h.SuspendUser)
 }
 
@@ -95,7 +94,10 @@ func (h *UserHandlers) UpdateUser(c *fiber.Ctx) error {
 	}
 	req.TenantID = authContext.TenantID
 
-	updated, err := h.service.UpdateUser(c.Context(), userID, req)
+	if req.Scopes != nil && !authContext.HasScope(scopes.ScopeScopesWrite) {
+		return fiber.NewError(fiber.StatusForbidden, "scopes:write required")
+	}
+	updated, err := h.service.UpdateUser(c.Context(), userID, authContext.Scopes, req)
 	if err != nil {
 		return err
 	}
@@ -115,17 +117,17 @@ func (h *UserHandlers) DeleteUser(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "User deleted successfully"})
 }
 
-func (h *UserHandlers) ActivateUser(c *fiber.Ctx) error {
+func (h *UserHandlers) ReinstateUser(c *fiber.Ctx) error {
 	authContext, ok := auth.GetAuthContext(c)
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
 
 	userID := kernel.UserID(c.Params("id"))
-	if err := h.service.ActivateUser(c.Context(), userID, authContext.TenantID); err != nil {
+	if err := h.service.ReinstateUser(c.Context(), userID, authContext.TenantID); err != nil {
 		return err
 	}
-	return c.JSON(fiber.Map{"message": "User activated successfully"})
+	return c.JSON(fiber.Map{"message": "User reinstated successfully"})
 }
 
 func (h *UserHandlers) SuspendUser(c *fiber.Ctx) error {

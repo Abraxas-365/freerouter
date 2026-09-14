@@ -29,19 +29,21 @@ const (
 
 // Invitation is the entity that represents a user invitation
 type Invitation struct {
-	ID         string           `db:"id" json:"id"`
-	TenantID   kernel.TenantID  `db:"tenant_id" json:"tenant_id"`
-	Email      string           `db:"email" json:"email"`
-	Token      string           `db:"token" json:"token"`
-	Scopes     []string         `db:"scopes" json:"scopes"`
-	RoleID     *string          `db:"role_id" json:"role_id,omitempty"` // Optional role to assign on accept
-	Status     InvitationStatus `db:"status" json:"status"`
-	InvitedBy  kernel.UserID    `db:"invited_by" json:"invited_by"`
-	ExpiresAt  time.Time        `db:"expires_at" json:"expires_at"`
-	AcceptedAt *time.Time       `db:"accepted_at" json:"accepted_at,omitempty"`
-	AcceptedBy *kernel.UserID   `db:"accepted_by" json:"accepted_by,omitempty"`
-	CreatedAt  time.Time        `db:"created_at" json:"created_at"`
-	UpdatedAt  time.Time        `db:"updated_at" json:"updated_at"`
+	RoleVersion int64            `db:"role_version" json:"-"`
+	Version     int64            `db:"version" json:"-"`
+	ID          string           `db:"id" json:"id"`
+	TenantID    kernel.TenantID  `db:"tenant_id" json:"tenant_id"`
+	Email       string           `db:"email" json:"email"`
+	Token       string           `db:"token" json:"token"`
+	Scopes      []string         `db:"scopes" json:"scopes"`
+	RoleID      *string          `db:"role_id" json:"role_id,omitempty"` // Optional role to assign on accept
+	Status      InvitationStatus `db:"status" json:"status"`
+	InvitedBy   kernel.UserID    `db:"invited_by" json:"invited_by"`
+	ExpiresAt   time.Time        `db:"expires_at" json:"expires_at"`
+	AcceptedAt  *time.Time       `db:"accepted_at" json:"accepted_at,omitempty"`
+	AcceptedBy  *kernel.UserID   `db:"accepted_by" json:"accepted_by,omitempty"`
+	CreatedAt   time.Time        `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time        `db:"updated_at" json:"updated_at"`
 }
 
 // ============================================================================

@@ -35,6 +35,7 @@ func NewUsageService(repo usage.UsageRepository, retentionRepo usage.DataRetenti
 // It is non-blocking; logs are persisted asynchronously.
 func (s *UsageService) LogRequest(
 	tenantID kernel.TenantID,
+	actor kernel.Actor,
 	route *gateway.RouteResult,
 	requestedModel string,
 	resp *gateway.ChatResponse,
@@ -57,6 +58,9 @@ func (s *UsageService) LogRequest(
 		CreatedAt:      time.Now().UTC(),
 	}
 
+	if id, ok := actor.APIKeyID(); ok {
+		log.APIKeyID = &id
+	}
 	keyID := route.KeyID
 	log.KeyID = &keyID
 

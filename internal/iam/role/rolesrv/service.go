@@ -34,8 +34,17 @@ func NewRoleService(
 func (s *RoleService) CreateRole(
 	ctx context.Context,
 	tenantID kernel.TenantID,
+	callerScopes []string,
 	req role.CreateRoleRequest,
 ) (*role.Role, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	for _, scope := range req.Scopes {
+		if !kernel.ScopesContain(callerScopes, scope) {
+			return nil, role.ErrRoleInvalidScopes().WithDetail("scope", scope)
+		}
+	}
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -108,8 +117,17 @@ func (s *RoleService) UpdateRole(
 	ctx context.Context,
 	roleID string,
 	tenantID kernel.TenantID,
+	callerScopes []string,
 	req role.UpdateRoleRequest,
 ) (*role.RoleDTO, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	for _, scope := range req.Scopes {
+		if !kernel.ScopesContain(callerScopes, scope) {
+			return nil, role.ErrRoleInvalidScopes().WithDetail("scope", scope)
+		}
+	}
 	r, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
 	if err != nil {
 		return nil, role.ErrRoleNotFound()
@@ -162,13 +180,26 @@ func (s *RoleService) AssignRoleToUser(
 	roleID string,
 	userID kernel.UserID,
 	tenantID kernel.TenantID,
+	callerScopes []string,
 ) error {
+	req := role.AssignRoleRequest{UserID: userID}
+	if err := req.Validate(); err != nil {
+		return err
+	}
 	// Verify role exists
-	_, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
+	r, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
 	if err != nil {
 		return role.ErrRoleNotFound()
 	}
 
+	if err := s.validateScopes(r.Scopes); err != nil {
+		return err
+	}
+	for _, scope := range r.Scopes {
+		if !kernel.ScopesContain(callerScopes, scope) {
+			return role.ErrRoleInvalidScopes()
+		}
+	}
 	// Verify user exists
 	_, err = s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
@@ -182,7 +213,7 @@ func (s *RoleService) AssignRoleToUser(
 		AssignedAt: time.Now().UTC(),
 	}
 
-	return s.roleRepo.AssignToUser(ctx, userRole)
+	return s.roleRepo.AssignToUser(ctx, userRole, r.Version)
 }
 
 // UnassignRoleFromUser removes a role from a user

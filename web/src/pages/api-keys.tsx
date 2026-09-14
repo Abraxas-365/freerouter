@@ -199,13 +199,9 @@ export default function ApiKeysPage() {
                           <DropdownMenuItem onClick={() => setEditKey(key)}>
                             <Pencil className="h-4 w-4 mr-2" /> Edit
                           </DropdownMenuItem>
-                          {key.is_active ? (
+                          {key.is_active && (
                             <DropdownMenuItem onClick={() => handleRevoke(key.id)}>
                               <ShieldOff className="h-4 w-4 mr-2" /> Revoke
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem onClick={() => handleUpdate(key.id, { is_active: true })}>
-                              <ShieldCheck className="h-4 w-4 mr-2" /> Activate
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />

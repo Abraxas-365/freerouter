@@ -121,7 +121,7 @@ func (s *BillingService) CheckSpendingLimit(ctx context.Context, tenantID kernel
 
 	cfg, err := s.spendingRepo.GetByTenantID(ctx, tenantID)
 	if err != nil {
-		return &billing.SpendingCheckResult{Allowed: true}, nil // fail open on error
+		return nil, err
 	}
 	if cfg == nil {
 		return &billing.SpendingCheckResult{Allowed: true}, nil // no limits configured
@@ -137,7 +137,7 @@ func (s *BillingService) CheckSpendingLimit(ctx context.Context, tenantID kernel
 	if cfg.DailyLimitUSD != nil {
 		dailySpend, err := s.spendingRepo.GetDailySpend(ctx, tenantID)
 		if err != nil {
-			return &billing.SpendingCheckResult{Allowed: true}, nil
+			return nil, err
 		}
 		result.DailySpend = dailySpend
 		if dailySpend >= *cfg.DailyLimitUSD {
@@ -151,7 +151,7 @@ func (s *BillingService) CheckSpendingLimit(ctx context.Context, tenantID kernel
 	if cfg.MonthlyLimitUSD != nil {
 		monthlySpend, err := s.spendingRepo.GetMonthlySpend(ctx, tenantID)
 		if err != nil {
-			return &billing.SpendingCheckResult{Allowed: true}, nil
+			return nil, err
 		}
 		result.MonthlySpend = monthlySpend
 		if monthlySpend >= *cfg.MonthlyLimitUSD {

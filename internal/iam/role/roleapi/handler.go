@@ -51,7 +51,7 @@ func (h *RoleHandlers) CreateRole(c *fiber.Ctx) error {
 		return err
 	}
 
-	r, err := h.service.CreateRole(c.Context(), authContext.TenantID, req)
+	r, err := h.service.CreateRole(c.Context(), authContext.TenantID, authContext.Scopes, req)
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func (h *RoleHandlers) UpdateRole(c *fiber.Ctx) error {
 		return err
 	}
 
-	r, err := h.service.UpdateRole(c.Context(), roleID, authContext.TenantID, req)
+	r, err := h.service.UpdateRole(c.Context(), roleID, authContext.TenantID, authContext.Scopes, req)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (h *RoleHandlers) AssignRole(c *fiber.Ctx) error {
 		return err
 	}
 
-	if err := h.service.AssignRoleToUser(c.Context(), roleID, req.UserID, authContext.TenantID); err != nil {
+	if err := h.service.AssignRoleToUser(c.Context(), roleID, req.UserID, authContext.TenantID, authContext.Scopes); err != nil {
 		return err
 	}
 

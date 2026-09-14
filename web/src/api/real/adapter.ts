@@ -22,7 +22,7 @@ import type {
   WebhookConfig, CreateWebhookRequest, UpdateWebhookRequest, WebhookDelivery,
   CreateWebhookResponse, WebhookTestResponse,
   ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, CreateApiKeyResponse,
-  User, CreateUserRequest, UpdateUserRequest,
+  User, UpdateUserRequest,
   Role, CreateRoleRequest, UpdateRoleRequest, AssignRoleRequest, UserRolesResponse,
   Invitation, CreateInvitationRequest, ValidateInvitationResponse,
   Paginated,
@@ -199,9 +199,8 @@ const apiKeys = {
 const users = {
   list: () => api.get<Paginated<User>>("/api/v1/users"),
   get: (id: string) => api.get<User>(`/api/v1/users/${id}`),
-  create: (req: CreateUserRequest) => api.post<User>("/api/v1/users", req),
   update: (id: string, req: UpdateUserRequest) => api.put<User>(`/api/v1/users/${id}`, req),
-  activate: (id: string) => api.post<void>(`/api/v1/users/${id}/activate`),
+  reinstate: (id: string) => api.post<void>(`/api/v1/users/${id}/reinstate`),
   suspend: (id: string, reason?: string) => api.post<void>(`/api/v1/users/${id}/suspend`, reason ? { reason } : undefined),
   delete: (id: string) => api.del<void>(`/api/v1/users/${id}`),
 }
@@ -217,8 +216,8 @@ const roles = {
   update: (id: string, req: UpdateRoleRequest) => api.put<Role>(`/api/v1/roles/${id}`, req),
   delete: (id: string) => api.del<void>(`/api/v1/roles/${id}`),
   assign: (roleId: string, req: AssignRoleRequest) => api.post<void>(`/api/v1/roles/${roleId}/assign`, req),
-  unassign: (roleId: string, userId: string) => api.del<void>(`/api/v1/roles/${roleId}/assign/${userId}`),
-  getUserRoles: (userId: string) => api.get<UserRolesResponse>(`/api/v1/roles/users/${userId}`),
+  unassign: (roleId: string, userId: string) => api.del<void>(`/api/v1/roles/${roleId}/users/${userId}`),
+  getUserRoles: (userId: string) => api.get<UserRolesResponse>(`/api/v1/users/${userId}/roles`),
 }
 
 // =============================================================================
@@ -226,14 +225,15 @@ const roles = {
 // =============================================================================
 
 const invitations = {
+  resend: (id: string) => api.post<void>(`/api/v1/invitations/${id}/resend`),
   list: () => api.get<Paginated<Invitation>>("/api/v1/invitations"),
   listPending: () => api.get<Paginated<Invitation>>("/api/v1/invitations/pending"),
   get: (id: string) => api.get<Invitation>(`/api/v1/invitations/${id}`),
   create: (req: CreateInvitationRequest) => api.post<Invitation>("/api/v1/invitations", req),
   delete: (id: string) => api.del<void>(`/api/v1/invitations/${id}`),
   revoke: (id: string) => api.post<void>(`/api/v1/invitations/${id}/revoke`),
-  validateToken: (token: string) => api.get<ValidateInvitationResponse>(`/api/v1/invitations/validate/${token}`),
-  getByToken: (token: string) => api.get<Invitation>(`/api/v1/invitations/token/${token}`),
+  validateToken: (token: string) => api.get<ValidateInvitationResponse>(`/api/v1/invitations/public/validate?token=${encodeURIComponent(token)}`),
+  getByToken: (token: string) => api.get<Invitation>(`/api/v1/invitations/public/token/${encodeURIComponent(token)}`),
 }
 
 // =============================================================================
@@ -241,6 +241,7 @@ const invitations = {
 // =============================================================================
 
 export const realApi: ApiPort = {
+  currentTenant: async () => (await api.get<{ tenant: { id: string } }>("/auth/me")).tenant.id,
   providers,
   models,
   mappings,

@@ -186,6 +186,7 @@ func New(deps Deps) *Container {
 
 	// ── Auth handlers ────────────────────────────────────────────────────
 
+	onboarding := authinfra.NewPostgresInvitationAcceptor(deps.DB)
 	c.OAuthHandlers = auth.NewAuthHandlers(
 		oauthServices,
 		c.TokenService,
@@ -198,6 +199,7 @@ func New(deps Deps) *Container {
 		roleRepo,
 		auditService,
 		c.RoleService,
+		onboarding,
 		deps.Cfg,
 	)
 
@@ -212,6 +214,7 @@ func New(deps Deps) *Container {
 		c.OTPService,
 		auditService,
 		c.RoleService,
+		onboarding,
 		deps.Cfg,
 	)
 
@@ -224,7 +227,7 @@ func New(deps Deps) *Container {
 
 	// ── Middleware ────────────────────────────────────────────────────────
 
-	c.UnifiedAuthMiddleware = auth.NewAPIKeyMiddleware(c.APIKeyService, c.TokenService)
+	c.UnifiedAuthMiddleware = auth.NewAPIKeyMiddleware(c.APIKeyService, c.TokenService, userRepo, tenantRepo, deps.Cfg.Auth.Cookie.AccessTokenName, sessionRepo, c.RoleService)
 
 	// ── Background services ──────────────────────────────────────────────
 

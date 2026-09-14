@@ -29,6 +29,7 @@ const (
 
 // Tenant is the rich entity that represents a company in the system
 type Tenant struct {
+	Version      int64           `db:"version" json:"-"`
 	ID           kernel.TenantID `db:"id" json:"id"`
 	CompanyName  string          `db:"company_name" json:"company_name"`
 	Status       TenantStatus    `db:"status" json:"status"`

@@ -30,7 +30,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 
-const TENANT_ID = "default"
 
 const TXN_META: Record<TransactionType, { label: string; icon: typeof Wallet; color: string }> = {
   top_up:  { label: "Top Up",     icon: ArrowUpCircle,   color: "text-green-500" },
@@ -43,6 +42,7 @@ const TXN_META: Record<TransactionType, { label: string; icon: typeof Wallet; co
 
 export default function BillingPage() {
   const api = useApi()
+  const [tenantID, setTenantID] = useState<string | null>(null)
 
   const [balance, setBalance] = useState<Balance | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -64,11 +64,13 @@ export default function BillingPage() {
   const [slSaving, setSlSaving] = useState(false)
 
   async function load() {
+    const tenantID = await api.currentTenant()
+    setTenantID(tenantID)
     const [bal, txns, sl, sc, cfg] = await Promise.all([
       api.billing.getBalance(),
       api.billing.listTransactions({ limit: 50 }),
-      api.billing.getSpendingLimit(TENANT_ID).catch(() => null),
-      api.billing.checkSpendingLimit(TENANT_ID).catch(() => null),
+      api.billing.getSpendingLimit(tenantID).catch(() => null),
+      api.billing.checkSpendingLimit(tenantID).catch(() => null),
       api.billing.getConfig().catch(() => null),
     ])
     setBalance(bal)
@@ -112,26 +114,28 @@ export default function BillingPage() {
   }
 
   async function saveSpendingLimit() {
+    if (!tenantID) return
     setSlSaving(true)
     const req: UpsertSpendingLimitRequest = {}
     if (dailyLimit) req.daily_limit_usd = Number(dailyLimit)
     if (monthlyLimit) req.monthly_limit_usd = Number(monthlyLimit)
-    const saved = await api.billing.upsertSpendingLimit(TENANT_ID, req)
+    const saved = await api.billing.upsertSpendingLimit(tenantID, req)
     setSpendingLimit(saved)
     setSlDirty(false)
     setSlSaving(false)
     // refresh spending check
-    const sc = await api.billing.checkSpendingLimit(TENANT_ID).catch(() => null)
+    const sc = await api.billing.checkSpendingLimit(tenantID).catch(() => null)
     setSpendingCheck(sc)
   }
 
   async function deleteSpendingLimit() {
-    await api.billing.deleteSpendingLimit(TENANT_ID)
+    if (!tenantID) return
+    await api.billing.deleteSpendingLimit(tenantID)
     setSpendingLimit(null)
     setDailyLimit("")
     setMonthlyLimit("")
     setSlDirty(false)
-    const sc = await api.billing.checkSpendingLimit(TENANT_ID).catch(() => null)
+    const sc = await api.billing.checkSpendingLimit(tenantID).catch(() => null)
     setSpendingCheck(sc)
   }
 

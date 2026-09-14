@@ -5,13 +5,10 @@ package scopes
 // ============================================================================
 
 const (
-	// Super scope - full access to everything
-	PlatformAdmin = "*"
+	// Full application authority within the authenticated tenant only.
+	ScopeAll = "*"
 
 	// Admin scopes
-
-	ScopeAdminRead  = "admin:read"
-	ScopeAdminWrite = "admin:write"
 
 	// User management scopes
 	ScopeUsersAll    = "users:*"
@@ -84,11 +81,8 @@ const (
 
 // CommonScopeCategories organizes common scopes by domain
 var CommonScopeCategories = map[string][]string{
-	"Administration": {
-		PlatformAdmin,
-
-		ScopeAdminRead,
-		ScopeAdminWrite,
+	"Tenant administration": {
+		ScopeAll,
 	},
 	"Users": {
 		ScopeUsersAll,
@@ -163,12 +157,9 @@ var CommonScopeCategories = map[string][]string{
 // CommonScopeDescriptions provides human-readable descriptions
 var CommonScopeDescriptions = map[string]string{
 	// Super admin
-	PlatformAdmin: "Full access to all system resources",
+	ScopeAll: "Full application authority within the current tenant",
 
 	// Admin
-
-	ScopeAdminRead:  "View administrative settings",
-	ScopeAdminWrite: "Modify administrative settings",
 
 	// Users
 	ScopeUsersAll:    "Full access to user management",

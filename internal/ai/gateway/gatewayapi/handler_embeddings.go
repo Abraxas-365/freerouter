@@ -68,7 +68,7 @@ func (h *GatewayHandlers) Embeddings(c *fiber.Ctx) error {
 
 	if err != nil {
 		h.healthTracker.ReportError(route.KeyID, statusCode)
-		h.logEmbeddingRequest(tenantID, route, requestedModel, nil, statusCode, duration, err, nil)
+		h.logEmbeddingRequest(tenantID, requestActor(c), route, requestedModel, nil, statusCode, duration, err, nil)
 		return fiber.NewError(fiber.StatusBadGateway, "embedding request failed")
 	}
 
@@ -90,7 +90,7 @@ func (h *GatewayHandlers) Embeddings(c *fiber.Ctx) error {
 
 	// Log usage
 	content := h.buildEmbeddingContent(c, &req, embResp)
-	h.logEmbeddingRequest(tenantID, route, requestedModel, embResp, http.StatusOK, duration, nil, content)
+	h.logEmbeddingRequest(tenantID, requestActor(c), route, requestedModel, embResp, http.StatusOK, duration, nil, content)
 
 	// Fire webhook
 	h.fireEmbeddingWebhook(tenantID, requestedModel, route, &embResp.Usage, cost, duration)
@@ -108,6 +108,7 @@ func calculateEmbeddingCost(route *gateway.RouteResult, u *gateway.EmbeddingUsag
 
 func (h *GatewayHandlers) logEmbeddingRequest(
 	tenantID kernel.TenantID,
+	actor kernel.Actor,
 	route *gateway.RouteResult,
 	requestedModel string,
 	resp *gateway.EmbeddingResponse,
@@ -126,7 +127,7 @@ func (h *GatewayHandlers) logEmbeddingRequest(
 			},
 		}
 	}
-	h.usage.LogRequest(tenantID, route, requestedModel, chatResp, statusCode, duration, false, reqErr, content)
+	h.usage.LogRequest(tenantID, actor, route, requestedModel, chatResp, statusCode, duration, false, reqErr, content)
 }
 
 func (h *GatewayHandlers) buildEmbeddingContent(c *fiber.Ctx, req *gateway.EmbeddingRequest, resp *gateway.EmbeddingResponse) *usage.RequestContent {

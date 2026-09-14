@@ -55,7 +55,7 @@ func (h *GatewayHandlers) Moderations(c *fiber.Ctx) error {
 
 	if err != nil {
 		h.healthTracker.ReportError(route.KeyID, statusCode)
-		h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolModeration, nil, statusCode, duration, err, nil)
+		h.logModalityRequest(tenantID, authCtx.Actor, route, requestedModel, gateway.ProtocolModeration, nil, statusCode, duration, err, nil)
 		return fiber.NewError(fiber.StatusBadGateway, "moderation request failed")
 	}
 	h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
@@ -70,7 +70,7 @@ func (h *GatewayHandlers) Moderations(c *fiber.Ctx) error {
 		raw, _ := json.Marshal(modResp)
 		content.RawResponse = raw
 	}
-	h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolModeration, nil, http.StatusOK, duration, nil, content)
+	h.logModalityRequest(tenantID, authCtx.Actor, route, requestedModel, gateway.ProtocolModeration, nil, http.StatusOK, duration, nil, content)
 
 	modResp.Model = requestedModel
 	return c.Status(http.StatusOK).JSON(modResp)
@@ -129,7 +129,7 @@ func (h *GatewayHandlers) Rerank(c *fiber.Ctx) error {
 
 	if err != nil {
 		h.healthTracker.ReportError(route.KeyID, statusCode)
-		h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolRerank, nil, statusCode, duration, err, nil)
+		h.logModalityRequest(tenantID, authCtx.Actor, route, requestedModel, gateway.ProtocolRerank, nil, statusCode, duration, err, nil)
 		return fiber.NewError(fiber.StatusBadGateway, "rerank request failed")
 	}
 	h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
@@ -151,7 +151,7 @@ func (h *GatewayHandlers) Rerank(c *fiber.Ctx) error {
 		raw, _ := json.Marshal(rrResp)
 		content.RawResponse = raw
 	}
-	h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolRerank, nil, http.StatusOK, duration, nil, content)
+	h.logModalityRequest(tenantID, authCtx.Actor, route, requestedModel, gateway.ProtocolRerank, nil, http.StatusOK, duration, nil, content)
 
 	h.fireModalityWebhook(tenantID, requestedModel, route, gateway.ProtocolRerank, cost, duration)
 

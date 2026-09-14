@@ -112,13 +112,14 @@ func (c *Container) initModules() {
 	logx.Info("Initializing modules...")
 
 	c.initFileStorage()
+	c.initNotifx()
 
 	c.IAM = iamcontainer.New(iamcontainer.Deps{
 		DB:                 c.DB,
 		Redis:              c.Redis,
 		Cfg:                c.Config,
-		OTPNotifier:        NewConsoleNotifier(),
-		InvitationNotifier: NewConsoleInvitationNotifier(),
+		OTPNotifier:        &iamEmailNotifier{sender: c.NotifxClient, enabled: c.Config.Notifx.Provider == "ses"},
+		InvitationNotifier: &iamEmailNotifier{sender: c.NotifxClient, enabled: c.Config.Notifx.Provider == "ses"},
 	})
 
 	c.Billing = billingcontainer.New(c.DB, c.Config.Stripe)
@@ -136,8 +137,6 @@ func (c *Container) initModules() {
 	c.AI.Gateway.Handlers.SetWalletService(c.Wallet.Service)
 
 	c.initJobx()
-
-	c.initNotifx()
 
 	c.Webhook = webhookcontainer.New(c.DB)
 	logx.Info("  Webhook service initialized")
@@ -235,54 +234,24 @@ func (c *Container) initFileStorage() {
 	}
 }
 
-// ConsoleNotifier implements the NotificationService interface
-// by printing OTP codes to the terminal/console
-type ConsoleNotifier struct{}
-
-// NewConsoleNotifier creates a new console-based OTP notifier
-func NewConsoleNotifier() *ConsoleNotifier {
-	return &ConsoleNotifier{}
+// IAM delivery uses the existing email adapter, never console secret logging.
+// Console remains available for non-sensitive application notifications only.
+type iamEmailNotifier struct {
+	sender  notifx.EmailSender
+	enabled bool
 }
 
-// SendOTP prints the OTP code to the terminal
-func (n *ConsoleNotifier) SendOTP(ctx context.Context, contact string, code string) error {
-	fmt.Println("\n" + repeatString("=", 60))
-	fmt.Println("📧 OTP NOTIFICATION (Console Output)")
-	fmt.Println(repeatString("=", 60))
-	fmt.Printf("📨 To: %s\n", contact)
-	fmt.Printf("🔐 Code: %s\n", code)
-	fmt.Println(repeatString("=", 60))
-	fmt.Println("⚠️  This is console output for development only")
-	fmt.Println("⚠️  In production, configure email service in config")
-	fmt.Println(repeatString("=", 60) + "\n")
-
-	logx.Infof("📧 OTP sent to %s: %s", contact, code)
-	return nil
+func (n *iamEmailNotifier) SendOTP(ctx context.Context, contact, code string) error {
+	if !n.enabled {
+		return fmt.Errorf("configure NOTIFX_PROVIDER=ses for OTP delivery")
+	}
+	return n.sender.SendEmail(ctx, notifx.EmailMessage{To: []string{contact}, Subject: "Your FreeRouter verification code", TextBody: "Your verification code is: " + code + "\nDo not share this code."})
 }
-
-// ConsoleInvitationNotifier implements invitation.NotificationService
-// by printing invitation details to the terminal/console
-type ConsoleInvitationNotifier struct{}
-
-func NewConsoleInvitationNotifier() *ConsoleInvitationNotifier {
-	return &ConsoleInvitationNotifier{}
-}
-
-func (n *ConsoleInvitationNotifier) SendInvitation(ctx context.Context, email string, token string, tenantID kernel.TenantID, invitedBy kernel.UserID) error {
-	fmt.Println("\n" + repeatString("=", 60))
-	fmt.Println("📧 INVITATION NOTIFICATION (Console Output)")
-	fmt.Println(repeatString("=", 60))
-	fmt.Printf("📨 To: %s\n", email)
-	fmt.Printf("🔗 Token: %s\n", token)
-	fmt.Printf("🏢 Tenant: %s\n", tenantID)
-	fmt.Printf("👤 Invited by: %s\n", invitedBy)
-	fmt.Println(repeatString("=", 60))
-	fmt.Println("⚠️  This is console output for development only")
-	fmt.Println("⚠️  In production, configure notifx for email delivery")
-	fmt.Println(repeatString("=", 60) + "\n")
-
-	logx.Infof("📧 Invitation sent to %s (token: %s...)", email, token[:8])
-	return nil
+func (n *iamEmailNotifier) SendInvitation(ctx context.Context, email, token string, tenantID kernel.TenantID, invitedBy kernel.UserID) error {
+	if !n.enabled {
+		return fmt.Errorf("configure NOTIFX_PROVIDER=ses for invitation delivery")
+	}
+	return n.sender.SendEmail(ctx, notifx.EmailMessage{To: []string{email}, Subject: "FreeRouter invitation", TextBody: fmt.Sprintf("You have been invited to FreeRouter tenant %s.\nUse this invitation token to join: %s\nDo not share this token.", tenantID, token)})
 }
 
 func (c *Container) initJobx() {

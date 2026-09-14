@@ -34,7 +34,7 @@ func NewOTPService(
 func (s *OTPService) GenerateOTP(ctx context.Context, contact string, purpose otp.OTPPurpose) (*otp.OTP, error) {
 	// Rate limiting check
 	existing, _ := s.repo.GetLatestByContact(ctx, contact, purpose)
-	if existing != nil && existing.IsValid() {
+	if existing != nil {
 		timeSinceCreation := time.Since(existing.CreatedAt)
 		if timeSinceCreation < s.config.RateLimitWindow {
 			return nil, otp.ErrTooManyRequests().WithDetail(

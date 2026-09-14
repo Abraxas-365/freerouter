@@ -33,7 +33,6 @@ import type {
   WebhookConfig,
   WebhookDelivery,
   ApiKey,
-  User,
   Role,
   Invitation,
 } from "../types"
@@ -1068,32 +1067,15 @@ export const usersPort: UsersPort = {
     if (!user) throw new Error("Not found")
     return user
   },
-  async create(req) {
-    await delay()
-    const user: User = {
-      id: crypto.randomUUID(),
-      tenant_id: TENANT,
-      name: req.name,
-      email: req.email,
-      picture: null,
-      is_active: true,
-      scopes: req.scopes,
-      oauth_provider: "email",
-      created_at: new Date().toISOString(),
-    }
-    users.push(user)
-    return user
-  },
   async update(id, req) {
     await delay()
     const user = users.find((u) => u.id === id)
     if (!user) throw new Error("Not found")
     if (req.name !== undefined) user.name = req.name
     if (req.scopes !== undefined) user.scopes = req.scopes
-    if (req.status !== undefined) user.is_active = req.status === "ACTIVE"
     return user
   },
-  async activate(id) {
+  async reinstate(id) {
     await delay()
     const user = users.find((u) => u.id === id)
     if (!user) throw new Error("Not found")
@@ -1191,6 +1173,11 @@ export const rolesPort: RolesPort = {
 // =============================================================================
 
 export const invitationsPort: InvitationsPort = {
+  async resend(id) {
+    const invitation = invitations.find((i) => i.id === id)
+    if (!invitation || invitation.status !== "PENDING") throw new Error("Invitation is not pending")
+    await delay()
+  },
   async list() {
     await delay()
     return { data: [...invitations], total: invitations.length }
@@ -1258,6 +1245,7 @@ export const invitationsPort: InvitationsPort = {
 // =============================================================================
 
 export const mockApi: ApiPort = {
+  currentTenant: async () => TENANT,
   providers: providerPort,
   models: modelPort,
   mappings: mappingPort,

@@ -108,29 +108,33 @@ func (rl *RateLimiter) InvalidateCache(tenantID string) {
 // CheckRPM checks whether the tenant is within their RPM limit.
 func (rl *RateLimiter) CheckRPM(ctx context.Context, tenantID string) (*RateLimitResult, error) {
 	cfg := rl.getConfig(ctx, tenantID)
-	if rl.rdb == nil || cfg.RPM <= 0 {
+	if cfg.RPM <= 0 {
 		return &RateLimitResult{Allowed: true, Remaining: -1}, nil
 	}
 
+	if rl.rdb == nil {
+		return nil, fmt.Errorf("rate limit backend unavailable")
+	}
 	key := fmt.Sprintf("rl:rpm:%s", tenantID)
 	now := time.Now()
 	windowStart := now.Add(-time.Minute)
 	member := fmt.Sprintf("%d:%d", now.UnixNano(), now.UnixNano()%1000000)
 
-	pipe := rl.rdb.Pipeline()
-	pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", windowStart.UnixNano()))
-	countCmd := pipe.ZCard(ctx, key)
-	pipe.ZAdd(ctx, key, redis.Z{Score: float64(now.UnixNano()), Member: member})
-	pipe.Expire(ctx, key, 2*time.Minute)
-
-	_, err := pipe.Exec(ctx)
+	// Lua serializes count-and-admit; a pipeline allows simultaneous requests
+	// to all observe the same count below the limit.
+	count, err := rl.rdb.Eval(ctx, `
+ redis.call('ZREMRANGEBYSCORE', KEYS[1], '0', ARGV[1])
+ local count = redis.call('ZCARD', KEYS[1])
+ if count < tonumber(ARGV[4]) then
+  redis.call('ZADD', KEYS[1], ARGV[2], ARGV[3])
+  redis.call('EXPIRE', KEYS[1], 120)
+ end
+ return count`, []string{key}, windowStart.UnixNano(), now.UnixNano(), member, cfg.RPM).Int()
 	if err != nil {
-		return &RateLimitResult{Allowed: true, Remaining: -1}, nil
+		return nil, err
 	}
 
-	count := int(countCmd.Val())
 	if count >= cfg.RPM {
-		rl.rdb.ZRem(ctx, key, member)
 		return &RateLimitResult{
 			Allowed:    false,
 			Remaining:  0,
@@ -149,14 +153,17 @@ func (rl *RateLimiter) CheckRPM(ctx context.Context, tenantID string) (*RateLimi
 // AcquireConcurrency tries to acquire a concurrency slot.
 func (rl *RateLimiter) AcquireConcurrency(ctx context.Context, tenantID string) (bool, error) {
 	cfg := rl.getConfig(ctx, tenantID)
-	if rl.rdb == nil || cfg.MaxConcurrent <= 0 {
+	if cfg.MaxConcurrent <= 0 {
 		return true, nil
 	}
 
+	if rl.rdb == nil {
+		return false, fmt.Errorf("rate limit backend unavailable")
+	}
 	key := fmt.Sprintf("rl:conc:%s", tenantID)
 	val, err := rl.rdb.Incr(ctx, key).Result()
 	if err != nil {
-		return true, nil
+		return false, err
 	}
 
 	if val == 1 {
@@ -193,7 +200,7 @@ func (rl *RateLimiter) Check(ctx context.Context, tenantID string) (*RateLimitRe
 
 	acquired, err := rl.AcquireConcurrency(ctx, tenantID)
 	if err != nil {
-		return &RateLimitResult{Allowed: true, Remaining: -1}, nil
+		return nil, err
 	}
 	if !acquired {
 		return &RateLimitResult{

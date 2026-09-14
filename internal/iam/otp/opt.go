@@ -10,6 +10,8 @@ import (
 type OTPPurpose string
 
 const (
+	OTPPurposeSignup         OTPPurpose = "SIGNUP"
+	OTPPurposeLogin          OTPPurpose = "LOGIN"
 	OTPPurposeJobApplication OTPPurpose = "JOB_APPLICATION"
 	OTPPurposeVerification   OTPPurpose = "VERIFICATION"
 )

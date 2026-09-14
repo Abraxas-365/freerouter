@@ -27,7 +27,6 @@ func (h *ProviderKeyHandlers) RegisterRoutes(router fiber.Router, authMiddleware
 
 	keys.Get("/by-provider/:providerId", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListByProvider)
 	keys.Get("/by-tenant/:tenantId", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), auth.ValidateTenantAccess(), h.ListByTenant)
-	keys.Get("/managed", authMiddleware.RequireScope(scopes.ScopeProviderKeysRead), h.ListManaged)
 
 	keys.Post("/:id/test", authMiddleware.RequireScope(scopes.ScopeProviderKeysWrite), h.TestKey)
 }
@@ -42,10 +41,8 @@ func (h *ProviderKeyHandlers) CreateKey(c *fiber.Ctx) error {
 	if !ok {
 		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
 	}
-	// Non-admin callers can only create keys for their own tenant.
-	if !authCtx.HasScope("*") {
-		req.TenantID = &authCtx.TenantID
-	}
+	// Customer keys are always tenant-owned BYOK keys.
+	req.TenantID = &authCtx.TenantID
 
 	k, err := h.service.CreateKey(c.Context(), req)
 	if err != nil {
@@ -55,13 +52,13 @@ func (h *ProviderKeyHandlers) CreateKey(c *fiber.Ctx) error {
 }
 
 // checkKeyAccess returns a 403 error if the key belongs to a different tenant.
-// Managed keys (nil tenant) are accessible; "*" scope bypasses the check.
+// Managed keys are not customer-managed resources.
 func checkKeyAccess(c *fiber.Ctx, k *providerkey.ProviderKey) error {
 	authCtx, ok := auth.GetAuthContext(c)
 	if !ok {
 		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized")
 	}
-	if k.TenantID != nil && *k.TenantID != authCtx.TenantID && !authCtx.HasScope("*") {
+	if k.TenantID == nil || *k.TenantID != authCtx.TenantID {
 		return fiber.NewError(fiber.StatusForbidden, "access denied to this key")
 	}
 	return nil
@@ -125,11 +122,11 @@ func (h *ProviderKeyHandlers) ListByProvider(c *fiber.Ctx) error {
 		return err
 	}
 
-	// Non-admin callers only see managed keys and their own tenant's keys.
-	if !authCtx.HasScope("*") {
+	// Only expose keys belonging to the authenticated tenant.
+	{
 		filtered := response.Keys[:0]
 		for _, k := range response.Keys {
-			if k.TenantID == nil || *k.TenantID == authCtx.TenantID {
+			if k.TenantID != nil && *k.TenantID == authCtx.TenantID {
 				filtered = append(filtered, k)
 			}
 		}

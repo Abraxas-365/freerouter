@@ -1,28 +1,20 @@
 import { useEffect, useState } from "react"
 import {
-  Box, Plus, MoreHorizontal, Pencil, Trash2, Server,
+  Box, Server,
 } from "lucide-react"
 import { useApi } from "@/api"
 import type {
-  Model, CreateModelRequest, UpdateModelRequest, ModelWithMappings, Provider,
+  ModelWithMappings, Provider,
 } from "@/api/types"
 import { PageHeader, EmptyState, CapabilityBadge } from "@/components"
 import { MetricCardSkeleton } from "@/components/feedback/skeletons"
 import { StatusBadge } from "@/components/data/status"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter,
+  Dialog, DialogContent, DialogDescription,
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 
 export default function ModelsPage() {
@@ -30,8 +22,6 @@ export default function ModelsPage() {
   const [modelsWithMappings, setModelsWithMappings] = useState<ModelWithMappings[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
-  const [createOpen, setCreateOpen] = useState(false)
-  const [editModel, setEditModel] = useState<Model | null>(null)
   const [detailModel, setDetailModel] = useState<ModelWithMappings | null>(null)
 
   async function load() {
@@ -51,27 +41,13 @@ export default function ModelsPage() {
 
   const providerMap = Object.fromEntries(providers.map((p) => [p.id, p]))
 
-  async function handleCreate(req: CreateModelRequest) {
-    await api.models.create(req)
-    setCreateOpen(false)
-    load()
-  }
 
-  async function handleUpdate(id: string, req: UpdateModelRequest) {
-    await api.models.update(id, req)
-    setEditModel(null)
-    load()
-  }
 
-  async function handleDelete(id: string) {
-    await api.models.delete(id)
-    load()
-  }
 
   if (loading) {
     return (
       <div className="space-y-6 p-6">
-        <PageHeader title="Models" description="Manage virtual models and provider mappings" />
+        <PageHeader title="Models" description="Browse the operator-managed model catalog" />
         <MetricCardSkeleton count={3} />
       </div>
     )
@@ -85,12 +61,7 @@ export default function ModelsPage() {
     <div className="space-y-6 p-6">
       <PageHeader
         title="Models"
-        description="Manage virtual models and provider mappings"
-        actions={
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Add Model
-          </Button>
-        }
+        description="Browse the operator-managed model catalog"
       />
 
       {/* Summary */}
@@ -110,12 +81,7 @@ export default function ModelsPage() {
         <EmptyState
           icon={Box}
           title="No models"
-          description="Add your first virtual model to start routing requests."
-          action={
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Add Model
-            </Button>
-          }
+          description="No models have been configured by the operator."
         />
       ) : (
         <div className="space-y-3">
@@ -201,25 +167,7 @@ export default function ModelsPage() {
 
                     {/* Right: actions */}
                     <div onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditModel(model)}>
-                            <Pencil className="h-4 w-4 mr-2" /> Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => handleDelete(model.id)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+
                     </div>
                   </div>
                 </CardContent>
@@ -227,27 +175,6 @@ export default function ModelsPage() {
             )
           })}
         </div>
-      )}
-
-      {/* Create dialog */}
-      <ModelFormDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        title="Add Model"
-        description="Create a new virtual model."
-        onSubmit={handleCreate}
-      />
-
-      {/* Edit dialog */}
-      {editModel && (
-        <ModelFormDialog
-          open={!!editModel}
-          onOpenChange={(open) => { if (!open) setEditModel(null) }}
-          title="Edit Model"
-          description={`Update ${editModel.name} configuration.`}
-          defaults={editModel}
-          onSubmit={(req) => handleUpdate(editModel.id, req)}
-        />
       )}
 
       {/* Detail dialog */}
@@ -275,74 +202,6 @@ function StabilityBadge({ stability }: { stability: string }) {
     <Badge variant="outline" className={`font-mono text-[10px] ${colors[stability] ?? ""}`}>
       {stability}
     </Badge>
-  )
-}
-
-function ModelFormDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  defaults,
-  onSubmit,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description: string
-  defaults?: Model
-  onSubmit: (req: CreateModelRequest) => void
-}) {
-  const [name, setName] = useState(defaults?.name ?? "")
-  const [desc, setDesc] = useState(defaults?.description ?? "")
-  const [family, setFamily] = useState(defaults?.family ?? "")
-  const [free, setFree] = useState(defaults?.free ?? false)
-
-  useEffect(() => {
-    if (open) {
-      setName(defaults?.name ?? "")
-      setDesc(defaults?.description ?? "")
-      setFamily(defaults?.family ?? "")
-      setFree(defaults?.free ?? false)
-    }
-  }, [open, defaults])
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    onSubmit({ name, description: desc, family, free })
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="font-mono">{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name" className="font-mono text-xs">Name</Label>
-            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. GPT-4o" required />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="description" className="font-mono text-xs">Description</Label>
-            <Input id="description" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Brief description" required />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="family" className="font-mono text-xs">Family</Label>
-            <Input id="family" value={family} onChange={(e) => setFamily(e.target.value)} placeholder="e.g. GPT, Claude, Gemini" required />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="free" className="font-mono text-xs">Free model</Label>
-            <Switch id="free" checked={free} onCheckedChange={setFree} />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={!name.trim()}>{defaults ? "Save Changes" : "Add Model"}</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   )
 }
 
@@ -468,4 +327,3 @@ function PriceCell({ label, value }: { label: string; value: number | null }) {
     </div>
   )
 }
-

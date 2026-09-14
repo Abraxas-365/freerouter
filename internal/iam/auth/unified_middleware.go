@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"github.com/Abraxas-365/freerouter/internal/iam/tenant"
+	"github.com/Abraxas-365/freerouter/internal/iam/user"
 	"strings"
+	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/iam"
 	"github.com/Abraxas-365/freerouter/internal/iam/apikey"
@@ -13,15 +16,22 @@ import (
 type UnifiedAuthMiddleware struct {
 	apiKeyService *apikeysrv.APIKeyService
 	tokenService  TokenService
+	userRepo      user.UserRepository
+	tenantRepo    tenant.TenantRepository
+	cookieName    string
+	sessionRepo   SessionRepository
+	scopeResolver ScopeResolver
 }
 
 func NewAPIKeyMiddleware(
 	apiKeyService *apikeysrv.APIKeyService,
 	tokenService TokenService,
+	userRepo user.UserRepository, tenantRepo tenant.TenantRepository, cookieName string, sessionRepo SessionRepository, scopeResolver ScopeResolver,
 ) *UnifiedAuthMiddleware {
 	return &UnifiedAuthMiddleware{
+		sessionRepo: sessionRepo, scopeResolver: scopeResolver,
 		apiKeyService: apiKeyService,
-		tokenService:  tokenService,
+		tokenService:  tokenService, userRepo: userRepo, tenantRepo: tenantRepo, cookieName: cookieName,
 	}
 }
 
@@ -45,11 +55,10 @@ func (am *UnifiedAuthMiddleware) authenticateAPIKey(c *fiber.Ctx, keyString stri
 	}
 
 	authContext := &kernel.AuthContext{
-		UserID:        key.UserID,
+		Actor:         kernel.NewAPIKeyActor(kernel.NewAPIKeyID(key.ID)),
 		TenantID:      key.TenantID,
 		Scopes:        key.Scopes,
 		AllowedModels: key.AllowedModels,
-		IsAPIKey:      true,
 		WalletID:      key.WalletID,
 	}
 
@@ -71,7 +80,7 @@ func (am *UnifiedAuthMiddleware) authenticateJWT(c *fiber.Ctx) error {
 	}
 
 	if token == "" {
-		token = c.Cookies("access_token")
+		token = c.Cookies(am.cookieName)
 	}
 
 	if token == "" {
@@ -87,13 +96,31 @@ func (am *UnifiedAuthMiddleware) authenticateJWT(c *fiber.Ctx) error {
 		})
 	}
 
+	u, err := am.userRepo.FindByID(c.Context(), claims.UserID, claims.TenantID)
+	if err != nil || u == nil || !u.CanLogin() || u.CredentialVersion != claims.CredentialVersion {
+		return iam.ErrUnauthorized()
+	}
+	t, err := am.tenantRepo.FindByID(c.Context(), claims.TenantID)
+	if err != nil || t == nil || !t.IsActive() {
+		return iam.ErrUnauthorized()
+	}
+	if claims.SessionID == "" {
+		return iam.ErrUnauthorized()
+	}
+	session, err := am.sessionRepo.FindSession(c.Context(), claims.SessionID)
+	if err != nil || session == nil || session.UserID != claims.UserID || session.TenantID != claims.TenantID || !session.ExpiresAt.After(time.Now()) {
+		return iam.ErrUnauthorized()
+	}
+	effective, err := am.scopeResolver.GetEffectiveScopes(c.Context(), claims.UserID, claims.TenantID)
+	if err != nil {
+		return iam.ErrUnauthorized()
+	}
 	authContext := &kernel.AuthContext{
-		UserID:   &claims.UserID,
+		Actor:    kernel.NewUserActor(claims.UserID),
 		TenantID: claims.TenantID,
 		Email:    claims.Email,
 		Name:     claims.Name,
-		Scopes:   claims.Scopes,
-		IsAPIKey: false,
+		Scopes:   effective,
 	}
 
 	c.Locals("auth", authContext)
@@ -192,4 +219,18 @@ func extractAPIKey(c *fiber.Ctx) string {
 func GetAuthContext(c *fiber.Ctx) (*kernel.AuthContext, bool) {
 	authContext, ok := c.Locals("auth").(*kernel.AuthContext)
 	return authContext, ok && authContext != nil && authContext.IsValid()
+}
+
+// AuthenticateUserJWT rejects API-key identity on user session endpoints.
+func (am *UnifiedAuthMiddleware) AuthenticateUserJWT() fiber.Handler { return am.authenticateJWT }
+
+// RequireUserActor prevents service credentials from widening their own constraints.
+func (am *UnifiedAuthMiddleware) RequireUserActor() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		ac, ok := GetAuthContext(c)
+		if !ok || !ac.Actor.IsUser() {
+			return fiber.NewError(fiber.StatusForbidden, "User authentication required")
+		}
+		return c.Next()
+	}
 }

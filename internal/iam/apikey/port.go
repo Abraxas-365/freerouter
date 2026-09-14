@@ -7,6 +7,7 @@ import (
 
 type APIKeyRepository interface {
 	Save(ctx context.Context, key APIKey) error
+	Revoke(ctx context.Context, id string, tenantID kernel.TenantID) error
 	FindByID(ctx context.Context, id string, tenantID kernel.TenantID) (*APIKey, error)
 	FindByHash(ctx context.Context, keyHash string) (*APIKey, error)
 	FindByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*APIKey, error)

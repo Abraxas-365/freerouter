@@ -22,6 +22,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/billing"
 	"github.com/Abraxas-365/freerouter/internal/billing/billingcontainer"
 	"github.com/Abraxas-365/freerouter/internal/config"
+	"github.com/Abraxas-365/freerouter/internal/errx"
 	"github.com/Abraxas-365/freerouter/internal/iam/apikey"
 	"github.com/Abraxas-365/freerouter/internal/iam/iamcontainer"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
@@ -416,7 +417,7 @@ func (s *Suite) seedTestData() {
 
 	// Generate JWT token with all scopes
 	allScopes := []string{
-		"*", // platform admin (required for cache invalidation endpoints)
+		"*", // tenant administrator; never cross-tenant or operator authority
 		"tenant:read", "tenant:write",
 		"providers:read", "providers:write", "providers:delete",
 		"models:read", "models:write", "models:delete",
@@ -430,12 +431,23 @@ func (s *Suite) seedTestData() {
 		"webhooks:read", "webhooks:write",
 		"guardrails:read", "guardrails:write",
 	}
+	// Persist authorization and a session: claims are not authority snapshots.
+	_, err = s.DB.ExecContext(ctx, `UPDATE users SET scopes = $1 WHERE id = $2`, pq.Array(allScopes), userID)
+	if err != nil {
+		s.T.Fatal(err)
+	}
+	sessionID := uuid.NewString()
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO user_sessions (id,user_id,tenant_id,session_token,expires_at,ip_address,user_agent) VALUES ($1,$2,$3,$4,$5,'','')`, sessionID, userID, s.TenantID.String(), uuid.NewString(), now.Add(time.Hour))
+	if err != nil {
+		s.T.Fatal(err)
+	}
 	s.JWTToken, err = s.IAM.TokenService.GenerateAccessToken(
 		s.UserID, s.TenantID,
 		map[string]any{
-			"email":  "test@e2e.com",
-			"name":   "E2E Test User",
-			"scopes": allScopes,
+			"email":      "test@e2e.com",
+			"name":       "E2E Test User",
+			"scopes":     allScopes,
+			"session_id": sessionID,
 		},
 	)
 	if err != nil {
@@ -505,10 +517,17 @@ func (s *Suite) seedTestData() {
 func (s *Suite) buildApp() {
 	s.App = fiber.New(fiber.Config{
 		DisableStartupMessage: true,
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			var domain *errx.Error
+			if errx.As(err, &domain) {
+				return c.Status(domain.HTTPStatus).JSON(domain)
+			}
+			return fiber.DefaultErrorHandler(c, err)
+		},
 	})
 
 	api := s.App.Group("/api")
-	protected := api.Group("/v1", s.IAM.UnifiedAuthMiddleware.Authenticate())
+	protected := api.Group("/v1")
 
 	// Provider routes
 	s.AI.Provider.Handlers.RegisterRoutes(protected, s.IAM.UnifiedAuthMiddleware)

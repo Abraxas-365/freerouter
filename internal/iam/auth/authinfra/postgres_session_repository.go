@@ -47,8 +47,8 @@ func (r *PostgresSessionRepository) SaveSession(ctx context.Context, session aut
 func (r *PostgresSessionRepository) FindSession(ctx context.Context, sessionID string) (*auth.UserSession, error) {
 	query := `
 		SELECT 
-			id, user_id, tenant_id, session_token, ip_address,
-			user_agent, expires_at, created_at, last_activity
+			id, user_id, tenant_id, session_token, COALESCE(ip_address, '') AS ip_address,
+			COALESCE(user_agent, '') AS user_agent, expires_at, created_at, last_activity
 		FROM user_sessions 
 		WHERE id = $1`
 
@@ -70,8 +70,8 @@ func (r *PostgresSessionRepository) FindSession(ctx context.Context, sessionID s
 func (r *PostgresSessionRepository) FindSessionByToken(ctx context.Context, sessionToken string) (*auth.UserSession, error) {
 	query := `
 		SELECT 
-			id, user_id, tenant_id, session_token, ip_address,
-			user_agent, expires_at, created_at, last_activity
+			id, user_id, tenant_id, session_token, COALESCE(ip_address, '') AS ip_address,
+			COALESCE(user_agent, '') AS user_agent, expires_at, created_at, last_activity
 		FROM user_sessions 
 		WHERE session_token = $1 AND expires_at > NOW()`
 
@@ -91,8 +91,8 @@ func (r *PostgresSessionRepository) FindSessionByToken(ctx context.Context, sess
 func (r *PostgresSessionRepository) FindUserSessions(ctx context.Context, userID kernel.UserID) ([]*auth.UserSession, error) {
 	query := `
 		SELECT 
-			id, user_id, tenant_id, session_token, ip_address,
-			user_agent, expires_at, created_at, last_activity
+			id, user_id, tenant_id, session_token, COALESCE(ip_address, '') AS ip_address,
+			COALESCE(user_agent, '') AS user_agent, expires_at, created_at, last_activity
 		FROM user_sessions 
 		WHERE user_id = $1 AND expires_at > NOW()
 		ORDER BY last_activity DESC`
@@ -236,8 +236,8 @@ func (r *PostgresSessionRepository) CountActiveSessions(ctx context.Context, use
 func (r *PostgresSessionRepository) GetSessionsByIPAddress(ctx context.Context, ipAddress string) ([]*auth.UserSession, error) {
 	query := `
 		SELECT 
-			id, user_id, tenant_id, session_token, ip_address,
-			user_agent, expires_at, created_at, last_activity
+			id, user_id, tenant_id, session_token, COALESCE(ip_address, '') AS ip_address,
+			COALESCE(user_agent, '') AS user_agent, expires_at, created_at, last_activity
 		FROM user_sessions 
 		WHERE ip_address = $1 AND expires_at > NOW()
 		ORDER BY created_at DESC`

@@ -151,16 +151,9 @@ func TestBilling(t *testing.T) {
 			"amount":      50.0,
 			"description": "E2E top up",
 		})
-		var result map[string]any
-		resp := s.DoJSON(req, &result)
-
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d", resp.StatusCode)
-		}
-
-		balance := result["balance"].(map[string]any)
-		if balance["balance"].(float64) != 150.0 {
-			t.Fatalf("expected balance 150.0 after top-up, got %f", balance["balance"])
+		resp, body := s.Do(req)
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator route exposed: %d %s", resp.StatusCode, body)
 		}
 	})
 
@@ -176,8 +169,8 @@ func TestBilling(t *testing.T) {
 		json.Unmarshal(body, &result)
 
 		transactions := result["transactions"].([]any)
-		if len(transactions) < 2 {
-			t.Fatalf("expected at least 2 transactions (initial + top-up), got %d", len(transactions))
+		if len(transactions) < 1 {
+			t.Fatalf("expected initial credit transaction, got %d", len(transactions))
 		}
 	})
 }
@@ -348,74 +341,21 @@ func TestProviderKeyTestEndpoint(t *testing.T) {
 
 func TestModelFallback(t *testing.T) {
 	s := NewSuite(t)
-
-	t.Run("create and list fallbacks", func(t *testing.T) {
-		// Get two models from the seeded data
-		modelsReq := s.Request("GET", "/api/v1/models", nil)
-		var modelsResult map[string]any
-		resp := s.DoJSON(modelsReq, &modelsResult)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d", resp.StatusCode)
+	// Fallbacks are a shared operator catalog, not tenant-mutable resources.
+	for _, method := range []string{"POST", "DELETE"} {
+		path := "/api/v1/model-fallbacks"
+		if method == "DELETE" {
+			path += "/operator-owned"
 		}
-
-		models := modelsResult["models"].([]any)
-		if len(models) < 2 {
-			t.Skip("need at least 2 models for fallback test")
+		resp, body := s.Do(s.Request(method, path, map[string]any{"model_id": "gpt-4o", "fallback_model_id": "gpt-4o-mini"}))
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator mutation exposed: %d %s", resp.StatusCode, body)
 		}
-
-		modelA := models[0].(map[string]any)["id"].(string)
-		modelB := models[1].(map[string]any)["id"].(string)
-
-		// Create a fallback: modelA -> modelB
-		createReq := s.Request("POST", "/api/v1/model-fallbacks", map[string]any{
-			"model_id":          modelA,
-			"fallback_model_id": modelB,
-			"priority":          0,
-		})
-		var created map[string]any
-		resp = s.DoJSON(createReq, &created)
-		if resp.StatusCode != http.StatusCreated {
-			t.Fatalf("expected 201, got %d", resp.StatusCode)
-		}
-		if created["model_id"] != modelA {
-			t.Fatalf("expected model_id=%s, got %v", modelA, created["model_id"])
-		}
-		if created["fallback_model_id"] != modelB {
-			t.Fatalf("expected fallback_model_id=%s, got %v", modelB, created["fallback_model_id"])
-		}
-
-		// List fallbacks for modelA
-		listReq := s.Request("GET", "/api/v1/model-fallbacks/by-model/"+modelA, nil)
-		var listResult map[string]any
-		resp = s.DoJSON(listReq, &listResult)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d", resp.StatusCode)
-		}
-		fallbacks := listResult["fallbacks"].([]any)
-		if len(fallbacks) != 1 {
-			t.Fatalf("expected 1 fallback, got %d", len(fallbacks))
-		}
-
-		// Delete the fallback
-		fbID := created["id"].(string)
-		delReq := s.Request("DELETE", "/api/v1/model-fallbacks/"+fbID, nil)
-		resp, _ = s.Do(delReq)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d", resp.StatusCode)
-		}
-
-		// Verify deleted
-		listReq2 := s.Request("GET", "/api/v1/model-fallbacks/by-model/"+modelA, nil)
-		var listResult2 map[string]any
-		resp = s.DoJSON(listReq2, &listResult2)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d", resp.StatusCode)
-		}
-		fallbacks2 := listResult2["fallbacks"].([]any)
-		if len(fallbacks2) != 0 {
-			t.Fatalf("expected 0 fallbacks after delete, got %d", len(fallbacks2))
-		}
-	})
+	}
+	resp, body := s.Do(s.Request("GET", "/api/v1/model-fallbacks/by-model/gpt-4o", nil))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("catalog read failed: %d %s", resp.StatusCode, body)
+	}
 }
 
 // ============================================================================
@@ -499,13 +439,9 @@ func TestCacheInvalidation(t *testing.T) {
 
 	t.Run("invalidate all cache", func(t *testing.T) {
 		req := s.Request("DELETE", "/api/v1/cache/", nil)
-		var result map[string]any
-		resp := s.DoJSON(req, &result)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d", resp.StatusCode)
-		}
-		if result["keys_deleted"] == nil {
-			t.Fatal("expected keys_deleted field")
+		resp, body := s.Do(req)
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator route exposed: %d %s", resp.StatusCode, body)
 		}
 	})
 }

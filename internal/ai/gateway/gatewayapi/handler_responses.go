@@ -159,6 +159,7 @@ func (h *GatewayHandlers) Responses(c *fiber.Ctx) error {
 }
 
 func (h *GatewayHandlers) handleResponsesNonStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, walletID *kernel.WalletID, cacheKey string) error {
+	actor := requestActor(c)
 	maxAttempts := gateway.MaxRetries + 1
 	if maxAttempts > len(routes) {
 		maxAttempts = len(routes)
@@ -188,7 +189,7 @@ func (h *GatewayHandlers) handleResponsesNonStreamWithRetry(c *fiber.Ctx, routes
 				time.Sleep(gateway.RetryDelay(attempt))
 				continue
 			}
-			h.usage.LogRequest(tenantID, route, requestedModel, nil, statusCode, duration, false, err, nil)
+			h.usage.LogRequest(tenantID, actor, route, requestedModel, nil, statusCode, duration, false, err, nil)
 			return err
 		}
 
@@ -197,7 +198,7 @@ func (h *GatewayHandlers) handleResponsesNonStreamWithRetry(c *fiber.Ctx, routes
 		cost := calculateCost(route, resp)
 		h.debitUsage(c.Context(), tenantID, walletID, cost)
 
-		h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, false, nil, buildRequestContent(c, chatReq.Messages, resp, body))
+		h.usage.LogRequest(tenantID, actor, route, requestedModel, resp, http.StatusOK, duration, false, nil, buildRequestContent(c, chatReq.Messages, resp, body))
 		h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 
 		if h.cache != nil {
@@ -209,12 +210,13 @@ func (h *GatewayHandlers) handleResponsesNonStreamWithRetry(c *fiber.Ctx, routes
 		return c.JSON(respAPI)
 	}
 
-	h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr, nil)
+	h.usage.LogRequest(tenantID, actor, routes[0], requestedModel, nil, lastStatus, 0, false, lastErr, nil)
 	h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	return lastErr
 }
 
 func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, chatReq *gateway.ChatRequest, requestedModel string, tenantID kernel.TenantID, walletID *kernel.WalletID) error {
+	actor := requestActor(c)
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
@@ -337,7 +339,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 					dCtx, dc := context.WithTimeout(context.Background(), 5*time.Second)
 					defer dc()
 					h.debitUsage(dCtx, tenantID, walletID, cost)
-					h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr, nil)
+					h.usage.LogRequest(tenantID, actor, route, requestedModel, resp, http.StatusBadGateway, duration, true, streamErr, nil)
 					return
 				}
 
@@ -368,7 +370,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 					"sequence_number": 0,
 				}
 				writeResponsesSSE(w, "response.failed", errEvt)
-				h.usage.LogRequest(tenantID, route, requestedModel, nil, upstreamStatus, duration, true, streamErr, nil)
+				h.usage.LogRequest(tenantID, actor, route, requestedModel, nil, upstreamStatus, duration, true, streamErr, nil)
 				return
 			}
 
@@ -425,7 +427,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 				}
 			}
 
-			h.usage.LogRequest(tenantID, route, requestedModel, resp, http.StatusOK, duration, true, nil, buildStreamRequestContent(debugMode, rawBody, chatReq.Messages))
+			h.usage.LogRequest(tenantID, actor, route, requestedModel, resp, http.StatusOK, duration, true, nil, buildStreamRequestContent(debugMode, rawBody, chatReq.Messages))
 			h.fireRequestWebhook(tenantID, route, requestedModel, resp, http.StatusOK, duration, nil)
 			return
 		}
@@ -439,7 +441,7 @@ func (h *GatewayHandlers) handleResponsesStreamWithRetry(c *fiber.Ctx, routes []
 			"sequence_number": 0,
 		}
 		writeResponsesSSE(w, "response.failed", errEvt)
-		h.usage.LogRequest(tenantID, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr, nil)
+		h.usage.LogRequest(tenantID, actor, routes[0], requestedModel, nil, lastStatus, 0, true, lastErr, nil)
 		h.fireRequestWebhook(tenantID, routes[0], requestedModel, nil, lastStatus, 0, lastErr)
 	})
 

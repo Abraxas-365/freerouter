@@ -49,6 +49,9 @@ func NewInvitationService(
 // inviterScopes are the scopes held by the inviting caller; the invitation's
 // resolved scopes (direct or via role) must be a subset to prevent privilege escalation.
 func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kernel.TenantID, invitedBy kernel.UserID, inviterScopes []string, req invitation.CreateInvitationRequest) (*invitation.Invitation, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	// Check that the tenant exists
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -70,7 +73,10 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 
 	// Check that the user does not already exist in the tenant
 	existingUser, err := s.userRepo.FindByEmail(ctx, req.Email, tenantID)
-	if err == nil && existingUser != nil {
+	if err != nil && !errx.IsNotFound(err) {
+		return nil, err
+	}
+	if existingUser != nil && existingUser.Status != user.UserStatusPending && !existingUser.IsActive() {
 		return nil, invitation.ErrUserAlreadyExists().WithDetail("email", req.Email)
 	}
 
@@ -83,27 +89,25 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 		return nil, invitation.ErrInvitationAlreadyExists().WithDetail("email", req.Email)
 	}
 
-	// Validate role if provided
-	if req.RoleID != nil && *req.RoleID != "" {
-		_, err := s.roleRepo.FindByID(ctx, *req.RoleID, tenantID)
-		if err != nil {
-			return nil, role.ErrRoleNotFound().WithDetail("role_id", *req.RoleID)
-		}
-	}
-
-	// Determine scopes
+	// Validate both direct grants and role grants, including role-only invitations.
 	resolvedScopes, err := s.resolveScopes(req)
 	if err != nil {
 		return nil, err
 	}
-
-	// Validate scopes
-	if err := s.validateScopes(resolvedScopes); err != nil {
+	granted := append([]string{}, resolvedScopes...)
+	var roleVersion int64
+	if req.RoleID != nil && *req.RoleID != "" {
+		r, err := s.roleRepo.FindByID(ctx, *req.RoleID, tenantID)
+		if err != nil {
+			return nil, err
+		}
+		roleVersion = r.Version
+		granted = append(granted, r.Scopes...)
+	}
+	if err := s.validateScopes(granted); err != nil {
 		return nil, err
 	}
-
-	// Prevent privilege escalation: the inviter can only grant scopes they hold
-	for _, sc := range resolvedScopes {
+	for _, sc := range granted {
 		if !kernel.ScopesContain(inviterScopes, sc) {
 			return nil, errx.Unauthorized("cannot invite with scopes you do not hold").WithDetail("scope", sc)
 		}
@@ -124,17 +128,18 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 
 	// Create invitation
 	newInvitation := &invitation.Invitation{
-		ID:        uuid.NewString(),
-		TenantID:  tenantID,
-		Email:     req.Email,
-		Token:     token,
-		Scopes:    resolvedScopes,
-		RoleID:    req.RoleID,
-		Status:    invitation.InvitationStatusPending,
-		InvitedBy: invitedBy,
-		ExpiresAt: expiresAt,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		RoleVersion: roleVersion,
+		ID:          uuid.NewString(),
+		TenantID:    tenantID,
+		Email:       req.Email,
+		Token:       token,
+		Scopes:      resolvedScopes,
+		RoleID:      req.RoleID,
+		Status:      invitation.InvitationStatusPending,
+		InvitedBy:   invitedBy,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	// Save invitation
@@ -168,6 +173,10 @@ func (s *InvitationService) GetInvitationByID(ctx context.Context, invitationID 
 
 // GetInvitationByToken gets an invitation by token
 func (s *InvitationService) GetInvitationByToken(ctx context.Context, token string) (*invitation.InvitationResponse, error) {
+	req := invitation.AcceptInvitationRequest{Token: token}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	inv, err := s.invitationRepo.FindByToken(ctx, token)
 	if err != nil {
 		return nil, invitation.ErrInvitationNotFound()
@@ -178,6 +187,10 @@ func (s *InvitationService) GetInvitationByToken(ctx context.Context, token stri
 
 // ValidateInvitationToken validates an invitation token without accepting it
 func (s *InvitationService) ValidateInvitationToken(ctx context.Context, token string) (*invitation.ValidateInvitationResponse, error) {
+	req := invitation.AcceptInvitationRequest{Token: token}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	inv, err := s.invitationRepo.FindByToken(ctx, token)
 	if err != nil {
 		return &invitation.ValidateInvitationResponse{
@@ -326,6 +339,9 @@ func (s *InvitationService) CleanupExpiredInvitations(ctx context.Context) (int,
 
 // resolveScopes determines the final scopes based on the request
 func (s *InvitationService) resolveScopes(req invitation.CreateInvitationRequest) ([]string, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	if len(req.Scopes) > 0 {
 		return req.Scopes, nil
 	}
@@ -360,4 +376,26 @@ func (s *InvitationService) buildInvitationResponse(inv *invitation.Invitation) 
 	return &invitation.InvitationResponse{
 		Invitation: *inv,
 	}
+}
+
+// ResendInvitation retries delivery without creating a new grant or token.
+func (s *InvitationService) ResendInvitation(ctx context.Context, id string, tenantID kernel.TenantID) error {
+	inv, err := s.invitationRepo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if inv.TenantID != tenantID || !inv.CanBeAccepted() {
+		return invitation.ErrInvitationInvalid()
+	}
+	t, err := s.tenantRepo.FindByID(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if !t.IsActive() {
+		return tenant.ErrTenantSuspended()
+	}
+	if s.notificationService == nil {
+		return errx.New("Invitation delivery is not configured", errx.TypeExternal)
+	}
+	return s.notificationService.SendInvitation(ctx, inv.Email, inv.Token, tenantID, inv.InvitedBy)
 }

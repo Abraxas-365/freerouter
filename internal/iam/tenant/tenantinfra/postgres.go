@@ -5,18 +5,18 @@ import (
 	"database/sql"
 
 	"github.com/Abraxas-365/freerouter/internal/errx"
+	"github.com/Abraxas-365/freerouter/internal/iam/iaminfra"
 	"github.com/Abraxas-365/freerouter/internal/iam/tenant"
 	"github.com/Abraxas-365/freerouter/internal/kernel"
-	"github.com/jmoiron/sqlx"
 )
 
 // PostgresTenantRepository is the PostgreSQL implementation of TenantRepository
 type PostgresTenantRepository struct {
-	db *sqlx.DB
+	db iaminfra.DBTX
 }
 
 // NewPostgresTenantRepository creates a new instance of the tenant repository
-func NewPostgresTenantRepository(db *sqlx.DB) tenant.TenantRepository {
+func NewPostgresTenantRepository(db iaminfra.DBTX) tenant.TenantRepository {
 	return &PostgresTenantRepository{
 		db: db,
 	}
@@ -28,7 +28,7 @@ func (r *PostgresTenantRepository) FindByID(ctx context.Context, id kernel.Tenan
 		SELECT
 			id, company_name, status,
 			max_users, current_users,
-			created_at, updated_at
+			created_at, updated_at, version
 		FROM tenants
 		WHERE id = $1`
 
@@ -51,7 +51,7 @@ func (r *PostgresTenantRepository) FindAll(ctx context.Context) ([]*tenant.Tenan
 		SELECT
 			id, company_name, status,
 			max_users, current_users,
-			created_at, updated_at
+			created_at, updated_at, version
 		FROM tenants
 		ORDER BY company_name ASC`
 
@@ -76,7 +76,7 @@ func (r *PostgresTenantRepository) FindActive(ctx context.Context) ([]*tenant.Te
 		SELECT
 			id, company_name, status,
 			max_users, current_users,
-			created_at, updated_at
+			created_at, updated_at, version
 		FROM tenants
 		WHERE status = 'ACTIVE'
 		ORDER BY company_name ASC`
@@ -98,16 +98,10 @@ func (r *PostgresTenantRepository) FindActive(ctx context.Context) ([]*tenant.Te
 
 // Save saves or updates a tenant
 func (r *PostgresTenantRepository) Save(ctx context.Context, t tenant.Tenant) error {
-	// Check if the tenant already exists
-	exists, err := r.tenantExists(ctx, t.ID)
-	if err != nil {
-		return errx.Wrap(err, "failed to check tenant existence", errx.TypeInternal)
+	if t.Version == 0 {
+		return r.create(ctx, t)
 	}
-
-	if exists {
-		return r.update(ctx, t)
-	}
-	return r.create(ctx, t)
+	return r.update(ctx, t)
 }
 
 // create creates a new tenant
@@ -141,7 +135,7 @@ func (r *PostgresTenantRepository) update(ctx context.Context, t tenant.Tenant) 
 			max_users = :max_users,
 			current_users = :current_users,
 			updated_at = :updated_at
-		WHERE id = :id`
+		WHERE id = :id AND version = :version`
 
 	result, err := r.db.NamedExecContext(ctx, query, t)
 	if err != nil {
@@ -203,11 +197,11 @@ func (r *PostgresTenantRepository) tenantExists(ctx context.Context, id kernel.T
 
 // PostgresTenantConfigRepository is the PostgreSQL implementation of TenantConfigRepository
 type PostgresTenantConfigRepository struct {
-	db *sqlx.DB
+	db iaminfra.DBTX
 }
 
 // NewPostgresTenantConfigRepository creates a new instance of the tenant configuration repository
-func NewPostgresTenantConfigRepository(db *sqlx.DB) tenant.TenantConfigRepository {
+func NewPostgresTenantConfigRepository(db iaminfra.DBTX) tenant.TenantConfigRepository {
 	return &PostgresTenantConfigRepository{
 		db: db,
 	}

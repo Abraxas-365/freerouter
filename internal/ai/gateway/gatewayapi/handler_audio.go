@@ -75,7 +75,7 @@ func (h *GatewayHandlers) Transcription(c *fiber.Ctx) error {
 
 	if err != nil {
 		h.healthTracker.ReportError(route.KeyID, statusCode)
-		h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolTranscription, nil, statusCode, duration, err, nil)
+		h.logModalityRequest(tenantID, requestActor(c), route, requestedModel, gateway.ProtocolTranscription, nil, statusCode, duration, err, nil)
 		return fiber.NewError(fiber.StatusBadGateway, "transcription request failed")
 	}
 	h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
@@ -100,7 +100,7 @@ func (h *GatewayHandlers) Transcription(c *fiber.Ctx) error {
 	if content.IsDebug {
 		content.RawResponse = respBody
 	}
-	h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolTranscription, nil, http.StatusOK, duration, nil, content)
+	h.logModalityRequest(tenantID, requestActor(c), route, requestedModel, gateway.ProtocolTranscription, nil, http.StatusOK, duration, nil, content)
 
 	h.fireModalityWebhook(tenantID, requestedModel, route, gateway.ProtocolTranscription, cost, duration)
 
@@ -158,7 +158,7 @@ func (h *GatewayHandlers) Speech(c *fiber.Ctx) error {
 
 	if err != nil {
 		h.healthTracker.ReportError(route.KeyID, statusCode)
-		h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolSpeech, nil, statusCode, duration, err, nil)
+		h.logModalityRequest(tenantID, requestActor(c), route, requestedModel, gateway.ProtocolSpeech, nil, statusCode, duration, err, nil)
 		return fiber.NewError(fiber.StatusBadGateway, "speech request failed")
 	}
 	h.healthTracker.ReportSuccessWithLatency(route.KeyID, duration)
@@ -177,7 +177,7 @@ func (h *GatewayHandlers) Speech(c *fiber.Ctx) error {
 		"audio_bytes": len(audio),
 	})
 	content := &usage.RequestContent{ResponseBody: respMeta, IsDebug: isDebugMode(c)}
-	h.logModalityRequest(tenantID, route, requestedModel, gateway.ProtocolSpeech, nil, http.StatusOK, duration, nil, content)
+	h.logModalityRequest(tenantID, requestActor(c), route, requestedModel, gateway.ProtocolSpeech, nil, http.StatusOK, duration, nil, content)
 
 	h.fireModalityWebhook(tenantID, requestedModel, route, gateway.ProtocolSpeech, cost, duration)
 
@@ -238,6 +238,7 @@ func rebuildMultipart(form *multipart.Form, file *multipart.FileHeader, external
 // logModalityRequest logs a non-chat modality request through the usage service.
 func (h *GatewayHandlers) logModalityRequest(
 	tenantID kernel.TenantID,
+	actor kernel.Actor,
 	route *gateway.RouteResult,
 	requestedModel string,
 	modality gateway.Protocol,
@@ -248,7 +249,7 @@ func (h *GatewayHandlers) logModalityRequest(
 	content *usage.RequestContent,
 ) {
 	resp := &gateway.ChatResponse{Object: string(modality), Usage: usageData}
-	h.usage.LogRequest(tenantID, route, requestedModel, resp, statusCode, duration, false, reqErr, content)
+	h.usage.LogRequest(tenantID, actor, route, requestedModel, resp, statusCode, duration, false, reqErr, content)
 }
 
 // fireModalityWebhook fires a request-completed webhook for a modality request.

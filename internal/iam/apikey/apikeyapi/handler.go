@@ -21,12 +21,12 @@ func NewAPIKeyHandlers(service *apikeysrv.APIKeyService) *APIKeyHandlers {
 func (h *APIKeyHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	keys := router.Group("/api-keys", authMiddleware.Authenticate())
 
-	keys.Post("/", authMiddleware.RequireScope(scopes.ScopeAPIKeysWrite), h.CreateAPIKey)
+	keys.Post("/", authMiddleware.RequireScope(scopes.ScopeAPIKeysWrite), authMiddleware.RequireUserActor(), h.CreateAPIKey)
 	keys.Get("/", authMiddleware.RequireScope(scopes.ScopeAPIKeysRead), h.GetTenantAPIKeys)
 	keys.Get("/:id", authMiddleware.RequireScope(scopes.ScopeAPIKeysRead), h.GetAPIKey)
-	keys.Put("/:id", authMiddleware.RequireScope(scopes.ScopeAPIKeysWrite), h.UpdateAPIKey)
-	keys.Post("/:id/revoke", authMiddleware.RequireScope(scopes.ScopeAPIKeysRevoke), h.RevokeAPIKey)
-	keys.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeAPIKeysDelete), h.DeleteAPIKey)
+	keys.Put("/:id", authMiddleware.RequireScope(scopes.ScopeAPIKeysWrite), authMiddleware.RequireUserActor(), h.UpdateAPIKey)
+	keys.Post("/:id/revoke", authMiddleware.RequireScope(scopes.ScopeAPIKeysRevoke), authMiddleware.RequireUserActor(), h.RevokeAPIKey)
+	keys.Delete("/:id", authMiddleware.RequireScope(scopes.ScopeAPIKeysDelete), authMiddleware.RequireUserActor(), h.DeleteAPIKey)
 }
 
 func (h *APIKeyHandlers) CreateAPIKey(c *fiber.Ctx) error {
@@ -40,7 +40,12 @@ func (h *APIKeyHandlers) CreateAPIKey(c *fiber.Ctx) error {
 		return err
 	}
 
-	response, err := h.service.CreateAPIKey(c.Context(), authContext.TenantID, *authContext.UserID, req)
+	userID, isUser := authContext.Actor.UserID()
+	if !isUser {
+		return iam.ErrUnauthorized()
+	}
+	c.Set("Cache-Control", "no-store")
+	response, err := h.service.CreateAPIKey(c.Context(), authContext.TenantID, userID, authContext.Scopes, req)
 	if err != nil {
 		return err
 	}
@@ -94,7 +99,7 @@ func (h *APIKeyHandlers) UpdateAPIKey(c *fiber.Ctx) error {
 		return err
 	}
 
-	key, err := h.service.UpdateAPIKey(c.Context(), keyID, authContext.TenantID, req)
+	key, err := h.service.UpdateAPIKey(c.Context(), keyID, authContext.TenantID, authContext.Scopes, req)
 	if err != nil {
 		return err
 	}

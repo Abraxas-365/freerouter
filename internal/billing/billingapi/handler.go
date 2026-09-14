@@ -25,8 +25,6 @@ func (h *BillingHandlers) RegisterRoutes(router fiber.Router, authMiddleware *au
 
 	b.Get("/balance", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.GetBalance)
 	b.Get("/config", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.GetConfig)
-	b.Post("/top-up", authMiddleware.RequireScope(scopes.ScopeBillingAdmin), h.TopUp)
-	b.Post("/adjust", authMiddleware.RequireScope(scopes.ScopeBillingAdmin), h.Adjust)
 	b.Get("/transactions", authMiddleware.RequireScope(scopes.ScopeBillingRead), h.ListTransactions)
 	b.Post("/checkout", authMiddleware.RequireScope(scopes.ScopeBillingWrite), h.CreateCheckout)
 

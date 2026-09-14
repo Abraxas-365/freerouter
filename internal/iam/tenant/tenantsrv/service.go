@@ -33,6 +33,9 @@ func NewTenantService(
 
 // CreateTenant creates a new tenant
 func (s *TenantService) CreateTenant(ctx context.Context, req tenant.CreateTenantRequest) (*tenant.Tenant, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	// Create new tenant
 	newTenant := &tenant.Tenant{
 		ID:           kernel.NewTenantID(uuid.NewString()),
@@ -123,6 +126,9 @@ func (s *TenantService) GetActiveTenants(ctx context.Context) (*tenant.TenantLis
 
 // UpdateTenant updates a tenant
 func (s *TenantService) UpdateTenant(ctx context.Context, tenantID kernel.TenantID, req tenant.UpdateTenantRequest) (*tenant.Tenant, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
@@ -153,6 +159,10 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID kernel.Tenant
 
 // SuspendTenant suspends a tenant
 func (s *TenantService) SuspendTenant(ctx context.Context, tenantID kernel.TenantID, reason string) error {
+	req := tenant.SuspendTenantRequest{Reason: reason}
+	if err := req.Validate(); err != nil {
+		return err
+	}
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return tenant.ErrTenantNotFound()
@@ -191,6 +201,10 @@ func (s *TenantService) GetTenantUsers(ctx context.Context, tenantID kernel.Tena
 
 // SetTenantConfig sets a tenant configuration
 func (s *TenantService) SetTenantConfig(ctx context.Context, tenantID kernel.TenantID, key, value string) error {
+	req := tenant.SetConfigRequest{Key: key, Value: value}
+	if err := req.Validate(); err != nil {
+		return err
+	}
 	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -221,6 +235,10 @@ func (s *TenantService) GetTenantConfig(ctx context.Context, tenantID kernel.Ten
 
 // DeleteTenantConfig deletes a tenant configuration
 func (s *TenantService) DeleteTenantConfig(ctx context.Context, tenantID kernel.TenantID, key string) error {
+	req := tenant.DeleteConfigRequest{Key: key}
+	if err := req.Validate(); err != nil {
+		return err
+	}
 	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {

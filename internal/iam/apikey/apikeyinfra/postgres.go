@@ -26,25 +26,20 @@ func NewPostgresAPIKeyRepository(db *sqlx.DB) apikey.APIKeyRepository {
 
 // Save inserts or updates an APIKey.
 func (r *PostgresAPIKeyRepository) Save(ctx context.Context, key apikey.APIKey) error {
-	exists, err := r.keyExists(ctx, key.ID)
-	if err != nil {
-		return errx.Wrap(err, "failed to check API key existence", errx.TypeInternal)
+	if key.Version == 0 {
+		return r.create(ctx, key)
 	}
-
-	if exists {
-		return r.update(ctx, key)
-	}
-	return r.create(ctx, key)
+	return r.update(ctx, key)
 }
 
 func (r *PostgresAPIKeyRepository) create(ctx context.Context, key apikey.APIKey) error {
 	query := `
 		INSERT INTO api_keys (
 			id, key_hash, key_prefix, tenant_id, user_id, name, description,
-			scopes, allowed_models, is_active, expires_at, last_used_at, created_at, updated_at
+			scopes, allowed_models, wallet_id, is_active, expires_at, last_used_at, created_at, updated_at
 		) VALUES (
 			:id, :key_hash, :key_prefix, :tenant_id, :user_id, :name, :description,
-			:scopes, :allowed_models, :is_active, :expires_at, :last_used_at, :created_at, :updated_at
+			:scopes, :allowed_models, :wallet_id, :is_active, :expires_at, :last_used_at, :created_at, :updated_at
 		)`
 
 	keyWithPGArray := toPersistence(key)
@@ -67,12 +62,11 @@ func (r *PostgresAPIKeyRepository) update(ctx context.Context, key apikey.APIKey
 			description = :description,
 			scopes = :scopes,
 			allowed_models = :allowed_models,
-			is_active = :is_active,
+			is_active = is_active AND :is_active,
 			wallet_id = :wallet_id,
 			expires_at = :expires_at,
-			last_used_at = :last_used_at,
 			updated_at = :updated_at
-		WHERE id = :id AND tenant_id = :tenant_id`
+		WHERE id = :id AND tenant_id = :tenant_id AND version = :version`
 
 	keyWithPGArray := toPersistence(key)
 
@@ -199,6 +193,7 @@ func (r *PostgresAPIKeyRepository) keyExists(ctx context.Context, id string) (bo
 
 // apiKeyPersistence is the persistence model with DB-specific types.
 type apiKeyPersistence struct {
+	Version       int64            `db:"version"`
 	ID            string           `db:"id"`
 	KeyHash       string           `db:"key_hash"`
 	KeyPrefix     string           `db:"key_prefix"`
@@ -219,6 +214,7 @@ type apiKeyPersistence struct {
 // toPersistence converts the domain model to a persistence model.
 func toPersistence(key apikey.APIKey) apiKeyPersistence {
 	return apiKeyPersistence{
+		Version:       key.Version,
 		ID:            key.ID,
 		KeyHash:       key.KeyHash,
 		KeyPrefix:     key.KeyPrefix,
@@ -240,11 +236,13 @@ func toPersistence(key apikey.APIKey) apiKeyPersistence {
 // toDomain converts the persistence model to the domain model.
 func toDomain(p apiKeyPersistence) apikey.APIKey {
 	return apikey.APIKey{
+		Version:       p.Version,
 		ID:            p.ID,
 		KeyHash:       p.KeyHash,
 		KeyPrefix:     p.KeyPrefix,
 		TenantID:      p.TenantID,
 		UserID:        p.UserID,
+		WalletID:      p.WalletID,
 		Name:          p.Name,
 		Description:   p.Description.String,
 		Scopes:        p.Scopes,
@@ -265,4 +263,20 @@ func toDomainSlice(pKeys []apiKeyPersistence) []*apikey.APIKey {
 		domainKeys[i] = &k
 	}
 	return domainKeys
+}
+
+// Revoke is monotonic and cannot be starved by concurrent metadata/usage writes.
+func (r *PostgresAPIKeyRepository) Revoke(ctx context.Context, id string, tenantID kernel.TenantID) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE api_keys SET is_active=false, updated_at=NOW() WHERE id=$1 AND tenant_id=$2`, id, tenantID.String())
+	if err != nil {
+		return errx.Wrap(err, "failed to revoke API key", errx.TypeInternal)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return apikey.ErrAPIKeyNotFound()
+	}
+	return nil
 }

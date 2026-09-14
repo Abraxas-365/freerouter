@@ -117,7 +117,9 @@ func TestScopeEnforcement(t *testing.T) {
 			"name": "Test",
 		})
 		resp, body := s.Do(req)
-		assertForbidden(t, resp, body)
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator route exposed: %d %s", resp.StatusCode, body)
+		}
 	})
 
 	t.Run("models:read allowed with scope", func(t *testing.T) {
@@ -134,7 +136,9 @@ func TestScopeEnforcement(t *testing.T) {
 			"name": "Test Model",
 		})
 		resp, body := s.Do(req)
-		assertForbidden(t, resp, body)
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator route exposed: %d %s", resp.StatusCode, body)
+		}
 	})
 
 	// ----------------------------------------------------------------
@@ -265,7 +269,9 @@ func TestScopeEnforcement(t *testing.T) {
 			"description": "test",
 		})
 		resp, body := s.Do(req)
-		assertForbidden(t, resp, body)
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator route exposed: %d %s", resp.StatusCode, body)
+		}
 	})
 
 	t.Run("billing:admin denied with read-only scope", func(t *testing.T) {
@@ -274,7 +280,9 @@ func TestScopeEnforcement(t *testing.T) {
 			"description": "test",
 		})
 		resp, body := s.Do(req)
-		assertForbidden(t, resp, body)
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator route exposed: %d %s", resp.StatusCode, body)
+		}
 	})
 
 	// ----------------------------------------------------------------
@@ -293,9 +301,9 @@ func TestScopeEnforcement(t *testing.T) {
 			"amount":      1.0,
 			"description": "wildcard test",
 		})
-		resp, _ := s.Do(req)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200 with wildcard scope, got %d", resp.StatusCode)
+		resp, body := s.Do(req)
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator route exposed: %d %s", resp.StatusCode, body)
 		}
 	})
 
@@ -304,9 +312,9 @@ func TestScopeEnforcement(t *testing.T) {
 			"amount":      0.5,
 			"description": "wildcard admin test",
 		})
-		resp, _ := s.Do(req)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200 with wildcard scope, got %d", resp.StatusCode)
+		resp, body := s.Do(req)
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator route exposed: %d %s", resp.StatusCode, body)
 		}
 	})
 
@@ -923,102 +931,21 @@ func TestCostEstimationFull(t *testing.T) {
 
 func TestModelFallbackFull(t *testing.T) {
 	s := NewSuite(t)
-
-	// Get models for testing
-	var modelsResult map[string]any
-	s.DoJSON(s.Request("GET", "/api/v1/models", nil), &modelsResult)
-	models := modelsResult["models"].([]any)
-	if len(models) < 3 {
-		t.Skip("need at least 3 models for fallback test")
+	// Fallbacks are a shared operator catalog, not tenant-mutable resources.
+	for _, method := range []string{"POST", "DELETE"} {
+		path := "/api/v1/model-fallbacks"
+		if method == "DELETE" {
+			path += "/operator-owned"
+		}
+		resp, body := s.Do(s.Request(method, path, map[string]any{"model_id": "gpt-4o", "fallback_model_id": "gpt-4o-mini"}))
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator mutation exposed: %d %s", resp.StatusCode, body)
+		}
 	}
-
-	modelA := models[0].(map[string]any)["id"].(string)
-	modelB := models[1].(map[string]any)["id"].(string)
-	modelC := models[2].(map[string]any)["id"].(string)
-
-	var fbID1, fbID2 string
-
-	t.Run("create first fallback", func(t *testing.T) {
-		req := s.Request("POST", "/api/v1/model-fallbacks", map[string]any{
-			"model_id":          modelA,
-			"fallback_model_id": modelB,
-			"priority":          0,
-		})
-		var result map[string]any
-		resp := s.DoJSON(req, &result)
-		if resp.StatusCode != http.StatusCreated {
-			t.Fatalf("expected 201, got %d", resp.StatusCode)
-		}
-		fbID1 = result["id"].(string)
-	})
-
-	t.Run("create second fallback with lower priority", func(t *testing.T) {
-		req := s.Request("POST", "/api/v1/model-fallbacks", map[string]any{
-			"model_id":          modelA,
-			"fallback_model_id": modelC,
-			"priority":          1,
-		})
-		var result map[string]any
-		resp := s.DoJSON(req, &result)
-		if resp.StatusCode != http.StatusCreated {
-			t.Fatalf("expected 201, got %d", resp.StatusCode)
-		}
-		fbID2 = result["id"].(string)
-	})
-
-	t.Run("list fallbacks shows both in priority order", func(t *testing.T) {
-		req := s.Request("GET", "/api/v1/model-fallbacks/by-model/"+modelA, nil)
-		var result map[string]any
-		resp := s.DoJSON(req, &result)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d", resp.StatusCode)
-		}
-		fallbacks := result["fallbacks"].([]any)
-		if len(fallbacks) != 2 {
-			t.Fatalf("expected 2 fallbacks, got %d", len(fallbacks))
-		}
-		// First should be priority 0
-		fb0 := fallbacks[0].(map[string]any)
-		if fb0["priority"].(float64) != 0 {
-			t.Fatalf("expected first fallback priority=0, got %v", fb0["priority"])
-		}
-		if fb0["fallback_model_id"] != modelB {
-			t.Fatalf("expected first fallback to be %s, got %v", modelB, fb0["fallback_model_id"])
-		}
-	})
-
-	t.Run("self-referencing fallback rejected", func(t *testing.T) {
-		req := s.Request("POST", "/api/v1/model-fallbacks", map[string]any{
-			"model_id":          modelA,
-			"fallback_model_id": modelA,
-			"priority":          0,
-		})
-		resp, _ := s.Do(req)
-		if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
-			t.Fatal("expected error for self-referencing fallback")
-		}
-	})
-
-	t.Run("scope enforcement: denied without models:write", func(t *testing.T) {
-		readKey := s.createAPIKeyWithScopes([]string{"models:read"})
-		req := s.requestWith(readKey, "POST", "/api/v1/model-fallbacks", map[string]any{
-			"model_id":          modelA,
-			"fallback_model_id": modelB,
-			"priority":          5,
-		})
-		resp, body := s.Do(req)
-		assertForbidden(t, resp, body)
-	})
-
-	t.Run("cleanup fallbacks", func(t *testing.T) {
-		for _, id := range []string{fbID1, fbID2} {
-			req := s.Request("DELETE", "/api/v1/model-fallbacks/"+id, nil)
-			resp, _ := s.Do(req)
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("expected 200 on delete, got %d", resp.StatusCode)
-			}
-		}
-	})
+	resp, body := s.Do(s.Request("GET", "/api/v1/model-fallbacks/by-model/gpt-4o", nil))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("catalog read failed: %d %s", resp.StatusCode, body)
+	}
 }
 
 // ============================================================================
@@ -1207,10 +1134,9 @@ func TestCacheInvalidationFull(t *testing.T) {
 
 	t.Run("invalidate all", func(t *testing.T) {
 		req := s.Request("DELETE", "/api/v1/cache/", nil)
-		var result map[string]any
-		resp := s.DoJSON(req, &result)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		resp, body := s.Do(req)
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("operator route exposed: %d %s", resp.StatusCode, body)
 		}
 	})
 

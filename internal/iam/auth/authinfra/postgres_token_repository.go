@@ -26,9 +26,9 @@ func NewPostgresTokenRepository(db *sqlx.DB) auth.TokenRepository {
 func (r *PostgresTokenRepository) SaveRefreshToken(ctx context.Context, token auth.RefreshToken) error {
 	query := `
 		INSERT INTO refresh_tokens (
-			id, token, user_id, tenant_id, expires_at, created_at, is_revoked
+			id, token, user_id, tenant_id, expires_at, created_at, is_revoked, credential_version, session_id
 		) VALUES (
-			:id, :token, :user_id, :tenant_id, :expires_at, :created_at, :is_revoked
+			:id, :token, :user_id, :tenant_id, :expires_at, :created_at, :is_revoked, :credential_version, :session_id
 		)`
 
 	_, err := r.db.NamedExecContext(ctx, query, token)
@@ -44,7 +44,7 @@ func (r *PostgresTokenRepository) SaveRefreshToken(ctx context.Context, token au
 func (r *PostgresTokenRepository) FindRefreshToken(ctx context.Context, tokenValue string) (*auth.RefreshToken, error) {
 	query := `
 		SELECT 
-			id, token, user_id, tenant_id, expires_at, created_at, is_revoked
+			id, token, user_id, tenant_id, expires_at, created_at, is_revoked, credential_version, session_id
 		FROM refresh_tokens 
 		WHERE token = $1 AND is_revoked = false`
 
@@ -135,7 +135,7 @@ func (r *PostgresTokenRepository) CountActiveTokens(ctx context.Context, userID 
 func (r *PostgresTokenRepository) GetActiveTokensByUser(ctx context.Context, userID kernel.UserID) ([]*auth.RefreshToken, error) {
 	query := `
 		SELECT 
-			id, token, user_id, tenant_id, expires_at, created_at, is_revoked
+			id, token, user_id, tenant_id, expires_at, created_at, is_revoked, credential_version, session_id
 		FROM refresh_tokens 
 		WHERE user_id = $1 AND is_revoked = false AND expires_at > NOW()
 		ORDER BY created_at DESC`

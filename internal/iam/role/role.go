@@ -13,6 +13,7 @@ import (
 // Role represents a named collection of scopes that can be assigned to users.
 // Similar to AWS IAM managed policies attached to roles.
 type Role struct {
+	Version     int64           `db:"version" json:"-"`
 	ID          string          `db:"id" json:"id"`
 	TenantID    kernel.TenantID `db:"tenant_id" json:"tenant_id"`
 	Name        string          `db:"name" json:"name"`
