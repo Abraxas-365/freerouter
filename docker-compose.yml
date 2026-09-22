@@ -1,0 +1,57 @@
+services:
+  # ── PostgreSQL (shared: freerouter + iamkit databases) ─────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: freerouter
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-freerouter}
+      POSTGRES_DB: freerouter
+      IAMKIT_DB_USER: iamkit
+      IAMKIT_DB_PASSWORD: ${IAMKIT_DB_PASSWORD:-iamkit_secret}
+      IAMKIT_DB_NAME: iamkit
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freerouter -d freerouter"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # ── Redis ───────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  # ── IAMKit ─────────────────────────────────────────────────────────
+  iamkit:
+    image: iamkit:latest
+    ports:
+      - "${IAMKIT_PORT:-8080}:8080"
+    environment:
+      DATABASE_URL: postgres://iamkit:${IAMKIT_DB_PASSWORD:-iamkit_secret}@postgres:5432/iamkit?sslmode=disable
+      SERVER_PORT: "8080"
+      JWT_PRIVATE_KEY_PATH: /secrets/jwt.pem
+      JWT_ISSUER: ${IAMKIT_JWT_ISSUER:-http://localhost:8080}
+      OIDC_HMAC_SECRET: ${OIDC_HMAC_SECRET:?Set OIDC_HMAC_SECRET in .env}
+      CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:3000"
+      IAMKIT_BOOTSTRAP_EMAIL: ${IAMKIT_BOOTSTRAP_EMAIL:-}
+      IAMKIT_BOOTSTRAP_WORKSPACE: ${IAMKIT_BOOTSTRAP_WORKSPACE:-FreeRouter}
+      IAMKIT_BOOTSTRAP_PASSWORD: ${IAMKIT_BOOTSTRAP_PASSWORD:-}
+    volumes:
+      - ./secrets/jwt.pem:/secrets/jwt.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+
