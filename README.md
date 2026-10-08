@@ -129,10 +129,17 @@ FreeRouter seeds **8 providers and 58 models** out of the box via migrations. Ad
 git clone https://github.com/Abraxas-365/freerouter.git
 cd freerouter
 
-cp .env.example .env
-make init    # generate JWT key, start Postgres + Redis + IAMKit, migrate, bootstrap
+cp .env.example .env   # or let make init create it with fresh secrets
+make init    # .env secrets + JWT key, build IAMKit from ../iam, start Postgres + Redis + IAMKit, migrate, provision IAMKit
 make dev     # start the server at http://localhost:3000
 ```
+
+IAMKit is built from source (`IAMKIT_SRC`, default `../iam`) so the server matches
+the SDK pinned in `go.mod`. `make bootstrap` creates the workspace owner with the
+`iamkit bootstrap` CLI (credential in `.dev-secrets/owner.json`, never in logs),
+provisions the environment and writes the ids to `.env`. To move to a newer IAMKit,
+`make reset && make init` (IAMKit schemas have no upgrade path between squashed
+migrations).
 
 ```bash
 curl http://localhost:3000/health
@@ -149,7 +156,7 @@ npm run dev             # http://localhost:5173
 
 ### First request
 
-1. Sign in via IAMKit (see `make iamkit-logs` for the management key, and `web/README.md` for console setup)
+1. Use the admin API key `make bootstrap` wrote to `.dev-secrets/admin-service-account` (all `freerouter:*` permissions), or sign in via the console (`web/README.md`)
 2. Add a provider key (your own OpenAI/Anthropic/... API key) via the API or console
 3. Create a FreeRouter service account (API key) with the gateway scope
 4. Call it like OpenAI:
@@ -245,8 +252,9 @@ Everything is configured via environment variables — see `.env.example` for th
 | `ENCRYPTION_KEY` | — | 32-byte hex key for encrypting stored provider API keys |
 | `CACHE_ENABLED` / `CACHE_TTL_SECONDS` | `true` / `60` | Response cache for non-streaming chat completions |
 | `METRICS_ENABLED` | `true` | Exposes Prometheus metrics at `GET /metrics` |
-| `IAMKIT_BASE_URL` / `IAMKIT_MANAGEMENT_KEY` | — | IAMKit sidecar connection + management API key |
-| `IAMKIT_ENVIRONMENT_ID` / `IAMKIT_APPLICATION_ID` / `IAMKIT_RESOURCE_ID` | — | IAMKit boundary IDs (created via IAMKit management API) |
+| `IAMKIT_BASE_URL` / `IAMKIT_JWT_ISSUER` / `IAMKIT_AUDIENCE` | `http://localhost:8080` / same / — | IAMKit connection and the token boundaries every request is checked against |
+| `IAMKIT_ENVIRONMENT_ID` / `IAMKIT_APPLICATION_ID` / `IAMKIT_RESOURCE_ID` / `IAMKIT_ORGANIZATION_ID` | — | IAMKit boundary IDs (written by `make bootstrap`); the server refuses to start without them |
+| `IAMKIT_SERVICE_SECRET` | — | FreeRouter's backend service account (`ik_svc_`) on the IAM resource, least privilege (`scripts/permissions.sh`). Enables user/role and API-key management; `ik_mgmt_` keys are rejected |
 
 ---
 

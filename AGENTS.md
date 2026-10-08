@@ -22,7 +22,8 @@
 | Dev server | `make dev` | ongoing |
 | Migrate | `make migrate` | ~2s |
 | Services up | `make up` (docker compose) | ~5s |
-| Full setup | `make init` (jwt-key + services + migrate) | ~15s |
+| Full setup | `make init` (.env secrets + jwt-key + build IAMKit from `../iam` + services + migrate + IAMKit provisioning) | ~2-4min first build |
+| Reset stack | `make reset` (drops volumes, `.dev-secrets/`, provisioned IAMKit ids) | ~5s |
 <!-- AGENTS-GENERATED:END commands -->
 
 ## Testing
@@ -58,6 +59,7 @@ internal/
   query/              -> Pagination types: Pagination, Paginated[T] (transport-agnostic)
   httpx/              -> HTTP helpers: PaginationFromCtx (Fiber query params → query.Pagination)
   server/             -> Fiber server, error middleware, IAMKit auth middleware
+  iamx/               -> IAMKit /api/v1 client: backend service account (ik_svc_), cached machine token, error translation
   provider/           -> LLM provider domain module (providers, models, mappings, fallbacks)
     provider.go       -> Provider entity + Status enum + Create/Update/Filter
     model.go          -> Model entity + Status/Stability enums + Create/Update/Filter
@@ -135,7 +137,7 @@ internal/
     ports.go         -> Commands/Queries/Store interfaces (Store = IAMKit adapter)
     adapters/
       apikeyhttp/    -> Inbound: HTTP handlers (create, list, revoke)
-      apikeyiamkit/  -> Outbound: IAMKit management SDK adapter (service accounts)
+      apikeyiamkit/  -> Outbound: IAMKit /api/v1 adapter via iamx (service accounts)
     apikeysvc/       -> Service: validate + delegate to IAMKit store
     apikeymodule/    -> Assembler: wires IAMKit store → svc → handler
   testutil/          -> Test-only fixtures: PostgresDB(t)/RedisClient(t) (testcontainers, auto-migrate, auto-cleanup)
@@ -175,7 +177,7 @@ Makefile              -> Dev commands
 | Webhook transport | `internal/webhook/webhooksvc/transport.go` | SSRF-hardened HTTP client: DNS-pinned dial, public-IP allowlist, no redirect follow |
 | Webhook service | `internal/webhook/webhooksvc/service.go` | Config/delivery CRUD, HMAC-SHA256 signing, async Fire, background retry worker |
 | API key entity | `internal/apikey/apikey.go` | APIKey/APIKeyCredential, CreateAPIKey + Validate(), no local DB |
-| IAMKit adapter (non-DB) | `internal/apikey/adapters/apikeyiamkit/store.go` | Outbound adapter calling IAMKit management SDK, wraps errors via errx |
+| IAMKit adapter (non-DB) | `internal/apikey/adapters/apikeyiamkit/store.go` | Outbound adapter calling IAMKit /api/v1 through `iamx.Client.Do`, errors via `iamx.Translate` |
 | API key module | `internal/apikey/apikeymodule/module.go` | No DB, no migration — IAMKit-backed assembler |
 <!-- AGENTS-GENERATED:END golden-samples -->
 
@@ -189,6 +191,7 @@ Makefile              -> Dev commands
 | Application error | `errx.Validation(msg)` etc. | `internal/errx/common.go` |
 | Error wrapping | `errx.Wrap(err, msg, type)` | `internal/errx/error.go` |
 | IAMKit auth | `server.AuthMiddleware(...)` | `internal/server/auth.go` |
+| Call IAMKit /api/v1 (users, roles, service accounts) | `iamx.Client.Do(ctx, fn)` + `iamx.Translate(err, op)` | `internal/iamx/client.go` |
 | Permission check | `server.RequirePermissions(...)` | `internal/server/auth.go` |
 | Get JWT claims | `server.Claims(c)` | `internal/server/auth.go` |
 | Token encryption | `providerkeyinfra.NewEncryptor(hexKey)` | `internal/providerkey/adapters/providerkeyinfra/encryptor.go` |
@@ -260,6 +263,9 @@ Find(ctx context.Context, providerID identity.ProviderID) (Provider, error)
 - JWT validation via online introspection (`authclient.Introspect`)
 - Permissions checked via `fiberauth.RequirePermissions`
 - No billing/payment — open-source, free
+- Backend calls to IAMKit use `IAMKIT_SERVICE_SECRET`: an `ik_svc_` service account on the environment's IAM resource with only the `iam:*` permissions in `scripts/permissions.sh` (via `iamx`). Never a management key (`ik_mgmt_`, rejected at startup). Its `iam:roles:*` is environment-wide, so `accesssvc`/`apikeysvc` filter to FreeRouter's resource and organization — keep that boundary when adding operations
+- Boundaries (issuer, audience, environment, application, resource) come only from config; startup fails if any is missing
+- IAMKit runs built from `IAMKIT_SRC` (default `../iam`); keep it at the commit pinned in `go.mod`
 
 ## Key Decisions
 <!-- AGENTS-GENERATED:START key-decisions -->
@@ -330,7 +336,7 @@ Find(ctx context.Context, providerID identity.ProviderID) (Provider, error)
 | Dispatcher | Gateway-facing hook: `Fire(event, data)` enqueues async delivery |
 | APIKey | A FreeRouter-managed API key for gateway access, backed by IAMKit service accounts |
 | APIKeyCredential | One-time response from API key creation containing the `ik_svc_...` secret |
-| Store (apikey) | Adapter interface abstracting IAMKit's service-account management SDK |
+| Store (apikey) | Adapter interface abstracting IAMKit service accounts (scoped /api/v1) |
 
 ## Scoped AGENTS.md (MUST read when working in these directories)
 <!-- AGENTS-GENERATED:START scope-index -->
