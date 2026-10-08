@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -75,7 +76,7 @@ func applyMigrations(t *testing.T, db *sqlx.DB) {
 
 	var files []string
 	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".sql" {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".up.sql") {
 			files = append(files, e.Name())
 		}
 	}

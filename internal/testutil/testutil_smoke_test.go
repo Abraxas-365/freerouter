@@ -15,8 +15,8 @@ func TestPostgresDB_Smoke(t *testing.T) {
 	if err := db.Get(&count, `SELECT COUNT(*) FROM providers`); err != nil {
 		t.Fatalf("providers table not migrated: %v", err)
 	}
-	if count != 0 {
-		t.Fatalf("expected empty providers table, got %d rows", count)
+	if count == 0 {
+		t.Fatalf("expected seeded providers (migration 014), got 0 rows")
 	}
 
 	// Spot-check a later migration ran too.

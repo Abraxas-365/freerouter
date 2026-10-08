@@ -115,7 +115,7 @@ func TestProviderRepo_List_FilterByStatusAndSearch(t *testing.T) {
 	repo := providerpg.NewProvider(db)
 	ctx := context.Background()
 
-	mustCreateProvider(t, repo, provider.Create{Name: "Anthropic", Protocol: provider.ProtocolAnthropic, BaseURL: "https://a.example.com"})
+	mustCreateProvider(t, repo, provider.Create{Name: "Anthropic Test", Protocol: provider.ProtocolAnthropic, BaseURL: "https://a.example.com"})
 	inactiveID := mustCreateProvider(t, repo, provider.Create{Name: "Cohere", Protocol: provider.ProtocolCohere, BaseURL: "https://c.example.com"})
 	inactive := provider.ProviderStatusInactive
 	if err := repo.Update(ctx, inactiveID, provider.Update{Status: &inactive}); err != nil {
@@ -133,12 +133,12 @@ func TestProviderRepo_List_FilterByStatusAndSearch(t *testing.T) {
 		}
 	}
 
-	search := "anthro"
+	search := "anthropic te"
 	searched, err := repo.List(ctx, provider.Filter{Search: &search}, query.Pagination{Limit: 10, Offset: 0})
 	if err != nil {
 		t.Fatalf("unexpected search error: %v", err)
 	}
-	if len(searched.Items) != 1 || searched.Items[0].Name != "Anthropic" {
+	if len(searched.Items) != 1 || searched.Items[0].Name != "Anthropic Test" {
 		t.Fatalf("expected single anthropic match, got %+v", searched.Items)
 	}
 	if searched.Page.Total != 1 {
@@ -151,6 +151,12 @@ func TestProviderRepo_List_Pagination(t *testing.T) {
 	repo := providerpg.NewProvider(db)
 	ctx := context.Background()
 
+	before, err := repo.List(ctx, provider.Filter{}, query.Pagination{Limit: 1, Offset: 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := before.Page.Total + 5
+
 	for i := 0; i < 5; i++ {
 		mustCreateProvider(t, repo, provider.Create{
 			Name: "Provider" + string(rune('A'+i)),
@@ -162,8 +168,8 @@ func TestProviderRepo_List_Pagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(page1.Items) != 2 || page1.Page.Total != 5 {
-		t.Fatalf("expected 2 items of 5 total, got %d items, total %d", len(page1.Items), page1.Page.Total)
+	if len(page1.Items) != 2 || page1.Page.Total != want {
+		t.Fatalf("expected 2 items of %d total, got %d items, total %d", want, len(page1.Items), page1.Page.Total)
 	}
 
 	page2, err := repo.List(ctx, provider.Filter{}, query.Pagination{Limit: 2, Offset: 2})
@@ -188,7 +194,7 @@ func TestModelRepo_CreateFindByNameUpdateDelete(t *testing.T) {
 	ctx := context.Background()
 
 	id := identity.NewModelID()
-	create := provider.CreateModel{Name: "gpt-4o", Description: "flagship", Family: "gpt", Free: false}
+	create := provider.CreateModel{Name: "gpt-4o-test", Description: "flagship", Family: "gpt", Free: false}
 	if err := repo.Create(ctx, id, create); err != nil {
 		t.Fatalf("unexpected create error: %v", err)
 	}
@@ -197,11 +203,11 @@ func TestModelRepo_CreateFindByNameUpdateDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected find error: %v", err)
 	}
-	if byID.Name != "gpt-4o" {
+	if byID.Name != "gpt-4o-test" {
 		t.Fatalf("unexpected model: %+v", byID)
 	}
 
-	byName, err := repo.FindByName(ctx, "gpt-4o")
+	byName, err := repo.FindByName(ctx, "gpt-4o-test")
 	if err != nil {
 		t.Fatalf("unexpected find-by-name error: %v", err)
 	}
