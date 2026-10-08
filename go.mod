@@ -3,7 +3,7 @@ module github.com/Abraxas-365/freerouter
 go 1.26.6
 
 require (
-	github.com/Abraxas-365/iamkit/sdk v0.0.0-20260919185300-5225d49deb66
+	github.com/Abraxas-365/iamkit/sdk v0.0.0-20261008225314-9df98a3db3c4
 	github.com/gofiber/adaptor/v2 v2.2.1
 	github.com/gofiber/fiber/v2 v2.52.15
 	github.com/google/uuid v1.6.0
@@ -82,5 +82,3 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/Abraxas-365/iamkit/sdk => /Users/abraxas/Desktop/Proyectos/iam/sdk
