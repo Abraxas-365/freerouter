@@ -47,9 +47,19 @@ type Service struct {
 // New creates a webhook service. Call StartWorker to begin processing
 // pending/retryable deliveries, and Stop to shut it down gracefully.
 func New(repo webhook.Repository) *Service {
+	return newService(repo, publicWebhookClient(deliveryTimeout))
+}
+
+// NewAllowingPrivateTargets is New without the SSRF guard: deliveries may
+// reach loopback and private addresses. For the test environment only.
+func NewAllowingPrivateTargets(repo webhook.Repository) *Service {
+	return newService(repo, unrestrictedWebhookClient(deliveryTimeout))
+}
+
+func newService(repo webhook.Repository, client *http.Client) *Service {
 	return &Service{
 		repo:   repo,
-		client: publicWebhookClient(deliveryTimeout),
+		client: client,
 		stopCh: make(chan struct{}),
 	}
 }

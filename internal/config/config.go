@@ -17,6 +17,7 @@ type Config struct {
 	Cache      Cache
 	Metrics    Metrics
 	IAMKit     IAMKit
+	Webhook    Webhook
 	Encryption Encryption
 }
 
@@ -60,6 +61,14 @@ type Cache struct {
 // Metrics holds Prometheus metrics configuration.
 type Metrics struct {
 	Enabled bool
+}
+
+// Webhook holds outbound webhook delivery configuration.
+type Webhook struct {
+	// AllowPrivate disables the SSRF guard so deliveries may target
+	// loopback/private addresses. Only honored when APP_ENV=test; it exists
+	// for end-to-end tests that run a local webhook receiver.
+	AllowPrivate bool
 }
 
 // IAMKit holds IAMKit service configuration. The boundary IDs are trusted
@@ -148,6 +157,9 @@ func Load() Config {
 			OrganizationID: envOr("IAMKIT_ORGANIZATION_ID", ""),
 			JWTIssuer:      envOr("IAMKIT_JWT_ISSUER", "http://localhost:8080"),
 			Audience:       envOr("IAMKIT_AUDIENCE", ""),
+		},
+		Webhook: Webhook{
+			AllowPrivate: envOrBool("WEBHOOK_ALLOW_PRIVATE", false) && envOr("APP_ENV", "development") == "test",
 		},
 		Encryption: Encryption{
 			Key: envOr("ENCRYPTION_KEY", ""),

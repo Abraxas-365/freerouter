@@ -46,3 +46,20 @@ func TestIAMKitValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_WebhookAllowPrivateOnlyInTestEnv(t *testing.T) {
+	t.Setenv("WEBHOOK_ALLOW_PRIVATE", "true")
+
+	t.Setenv("APP_ENV", "production")
+	if Load().Webhook.AllowPrivate {
+		t.Fatal("WEBHOOK_ALLOW_PRIVATE must be ignored outside APP_ENV=test")
+	}
+	t.Setenv("APP_ENV", "development")
+	if Load().Webhook.AllowPrivate {
+		t.Fatal("WEBHOOK_ALLOW_PRIVATE must be ignored outside APP_ENV=test")
+	}
+	t.Setenv("APP_ENV", "test")
+	if !Load().Webhook.AllowPrivate {
+		t.Fatal("WEBHOOK_ALLOW_PRIVATE should be honored when APP_ENV=test")
+	}
+}

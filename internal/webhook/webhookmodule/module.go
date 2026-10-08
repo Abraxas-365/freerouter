@@ -11,6 +11,9 @@ import (
 // Deps holds external dependencies for the webhook module.
 type Deps struct {
 	DB *sqlx.DB
+	// AllowPrivateTargets disables the SSRF guard on deliveries. Only true in
+	// the test environment (see config.Webhook).
+	AllowPrivateTargets bool
 }
 
 // Module exposes the webhook module's public interfaces and HTTP handler.
@@ -31,6 +34,9 @@ type Module struct {
 func New(deps Deps) Module {
 	repo := webhookpg.New(deps.DB)
 	svc := webhooksvc.New(repo)
+	if deps.AllowPrivateTargets {
+		svc = webhooksvc.NewAllowingPrivateTargets(repo)
+	}
 
 	return Module{
 		Commands:   svc,

@@ -137,7 +137,8 @@ func (c *Container) initModules() error {
 	})
 
 	c.Webhook = webhookmodule.New(webhookmodule.Deps{
-		DB: c.DB,
+		DB:                  c.DB,
+		AllowPrivateTargets: c.Config.Webhook.AllowPrivate,
 	})
 
 	// API key + access modules (require the IAMKit backend service account)

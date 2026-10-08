@@ -62,3 +62,16 @@ func publicWebhookClient(timeout time.Duration) *http.Client {
 		},
 	}
 }
+
+// unrestrictedWebhookClient is publicWebhookClient without the address
+// check; it still refuses redirects. Used only when the server runs with
+// APP_ENV=test and WEBHOOK_ALLOW_PRIVATE=true.
+func unrestrictedWebhookClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: &http.Transport{TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: timeout},
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
