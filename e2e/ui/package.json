@@ -1,0 +1,16 @@
+{
+  "name": "freerouter-e2e-ui",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@playwright/test": "^1.64.0"
+  },
+  "private": "true"
+}
