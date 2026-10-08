@@ -19,3 +19,10 @@ Thumbs.db
 *.exe
 *.test
 *.out
+
+# e2e harness state (secrets, logs, fixtures)
+e2e/.run/
+web/.env.e2e
+e2e/ui/node_modules/
+e2e/ui/test-results/
+e2e/ui/playwright-report/

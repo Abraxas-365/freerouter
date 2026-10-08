@@ -16,16 +16,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Overridable for alternate stacks (e2e): where .env and secrets live.
+ENV_FILE=${ENV_FILE:-.env}
+SECRETS_DIR=${SECRETS_DIR:-.dev-secrets}
+
 die()  { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "▸ $*"; }
 
 command -v curl >/dev/null || die "curl is required"
 command -v jq   >/dev/null || die "jq is required"
-[[ -f .env ]] || die ".env missing: run make setup"
+[[ -f "$ENV_FILE" ]] || die "$ENV_FILE missing: run make setup"
 
-set -a; source .env; set +a
+set -a; source "$ENV_FILE"; set +a
 if [[ -n "${IAMKIT_ENVIRONMENT_ID:-}" ]]; then
-  die "IAMKit already provisioned (IAMKIT_ENVIRONMENT_ID set in .env). Run 'make reset' for a fresh stack."
+  die "IAMKit already provisioned (IAMKIT_ENVIRONMENT_ID set in $ENV_FILE). Run 'make reset' for a fresh stack."
 fi
 
 base="http://localhost:${IAMKIT_PORT:-8080}"
@@ -43,14 +47,14 @@ curl --silent --fail "$base/health" >/dev/null || die "IAMKit is not answering a
 
 # ── Owner credential (one-time management key, private file) ────────
 umask 077
-mkdir -p .dev-secrets
-if [[ ! -f .dev-secrets/owner.json ]]; then
+mkdir -p "$SECRETS_DIR"
+if [[ ! -f "$SECRETS_DIR/owner.json" ]]; then
   info "Bootstrapping workspace for ${operator}…"
   docker compose exec -T iamkit sh -c 'rm -f /tmp/owner.json && iamkit bootstrap --email "$0" --workspace FreeRouter --output /tmp/owner.json >/dev/null && cat /tmp/owner.json && rm -f /tmp/owner.json' \
-    "$operator" > .dev-secrets/owner.json.tmp
-  mv .dev-secrets/owner.json.tmp .dev-secrets/owner.json
+    "$operator" > "$SECRETS_DIR/owner.json.tmp"
+  mv "$SECRETS_DIR/owner.json.tmp" "$SECRETS_DIR/owner.json"
 fi
-MGMT=$(jq -er .management_key .dev-secrets/owner.json) || die ".dev-secrets/owner.json has no management_key"
+MGMT=$(jq -er .management_key "$SECRETS_DIR/owner.json") || die "$SECRETS_DIR/owner.json has no management_key"
 
 management() {
   curl --fail-with-body --silent --show-error --request "$1" "$base/management/v1$2" \
@@ -101,8 +105,8 @@ fi
 set_env() { # set_env KEY VALUE: replace the line or append it (portable, no sed -i)
   local tmp
   tmp=$(mktemp)
-  awk -v k="$1" -v v="$2" 'BEGIN{done=0} index($0, k"=")==1 {print k"="v; done=1; next} {print} END{if(!done) print k"="v}' .env > "$tmp"
-  cat "$tmp" > .env && rm -f "$tmp"
+  awk -v k="$1" -v v="$2" 'BEGIN{done=0} index($0, k"=")==1 {print k"="v; done=1; next} {print} END{if(!done) print k"="v}' "$ENV_FILE" > "$tmp"
+  cat "$tmp" > "$ENV_FILE" && rm -f "$tmp"
 }
 set_env IAMKIT_AUDIENCE        "$audience"
 set_env IAMKIT_ENVIRONMENT_ID  "$environment"
@@ -110,7 +114,7 @@ set_env IAMKIT_APPLICATION_ID  "$application"
 set_env IAMKIT_RESOURCE_ID     "$resource"
 set_env IAMKIT_ORGANIZATION_ID "$organization"
 set_env IAMKIT_SERVICE_SECRET  "$service_secret"
-printf '%s\n' "$admin_secret" > .dev-secrets/admin-service-account
+printf '%s\n' "$admin_secret" > "$SECRETS_DIR/admin-service-account"
 
 cat <<EOF
 
