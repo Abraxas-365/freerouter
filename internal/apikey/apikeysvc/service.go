@@ -4,11 +4,17 @@ import (
 	"context"
 
 	"github.com/Abraxas-365/freerouter/internal/apikey"
+	"github.com/Abraxas-365/freerouter/internal/errx"
 )
 
 // Service implements apikey.Commands and apikey.Queries.
 // It validates input and delegates to the IAMKit-backed store,
 // injecting the FreeRouter application/resource IDs from config.
+//
+// FreeRouter API keys are exactly the service accounts on FreeRouter's
+// resource. Other service accounts of the environment (FreeRouter's own
+// backend credential on the IAM resource, other services' accounts) are
+// neither listed nor revocable here.
 type Service struct {
 	store         apikey.Store
 	applicationID string
@@ -33,13 +39,30 @@ func (s *Service) Create(ctx context.Context, input apikey.CreateServiceAccount)
 
 func (s *Service) Revoke(ctx context.Context, id string) error {
 	if id == "" {
-		return nil
+		return errx.Validation("service account id is required")
+	}
+	account, err := s.store.Find(ctx, id)
+	if err != nil {
+		return err
+	}
+	if account.ResourceID != s.resourceID {
+		return errx.NotFound("service account not found")
 	}
 	return s.store.Revoke(ctx, id)
 }
 
 func (s *Service) List(ctx context.Context) ([]apikey.APIKey, error) {
-	return s.store.List(ctx)
+	all, err := s.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]apikey.APIKey, 0, len(all))
+	for _, a := range all {
+		if a.ResourceID == s.resourceID {
+			out = append(out, a)
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) ListApplications(ctx context.Context) ([]apikey.Application, error) {

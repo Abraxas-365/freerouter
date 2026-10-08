@@ -56,6 +56,7 @@ type Role struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Permissions []string `json:"permissions"`
+	ResourceID  string   `json:"-"` // IAMKit resource the role belongs to; only FreeRouter's are exposed
 }
 
 // CreateRole is the input for creating a new role.
@@ -109,6 +110,7 @@ type RoleAssignment struct {
 	UserID         string `json:"user_id"`
 	RoleID         string `json:"role_id"`
 	OrganizationID string `json:"organization_id"`
+	ResourceID     string `json:"-"` // resource of the role; only FreeRouter's are exposed
 }
 
 // AssignRole is the input for assigning a role to a user.

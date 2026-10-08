@@ -1,39 +1,40 @@
+// Package apikeyiamkit implements apikey.Store with IAMKit service accounts,
+// through the permission-scoped API (/api/v1) as FreeRouter's backend
+// service account (iam:service-accounts:*, iam:apps:read).
 package apikeyiamkit
 
 import (
 	"context"
 
 	"github.com/Abraxas-365/freerouter/internal/apikey"
-	"github.com/Abraxas-365/freerouter/internal/errx"
-	"github.com/Abraxas-365/iamkit/sdk/iamclient"
+	"github.com/Abraxas-365/freerouter/internal/iamx"
+	"github.com/Abraxas-365/iamkit/sdk/apiclient"
 )
 
-// Store implements apikey.Store using IAMKit's management API (service accounts).
+// Store implements apikey.Store using IAMKit service accounts.
 type Store struct {
-	client *iamclient.Client
-	envID  string
-	env    iamclient.Environment
+	iam *iamx.Client
 }
 
 // New creates an IAMKit-backed API key store.
-func New(client *iamclient.Client, environmentID string) *Store {
-	return &Store{
-		client: client,
-		envID:  environmentID,
-		env:    client.Environment(environmentID),
-	}
+func New(iam *iamx.Client) *Store {
+	return &Store{iam: iam}
 }
 
 func (s *Store) Create(ctx context.Context, input apikey.CreateAPIKey, applicationID, resourceID string) (apikey.APIKeyCredential, error) {
-	cred, err := s.env.CreateServiceAccount(ctx, iamclient.ServiceAccount{
-		Name:          input.Name,
-		ApplicationID: applicationID,
-		ResourceID:    resourceID,
-		Permissions:   input.Permissions,
-		ExpiresIn:     input.ExpiresIn,
+	var cred apiclient.ServiceAccountKey
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		cred, err = env.CreateServiceAccount(ctx, apiclient.ServiceAccount{
+			Name:          input.Name,
+			ApplicationID: applicationID,
+			ResourceID:    resourceID,
+			Permissions:   input.Permissions,
+			ExpiresIn:     input.ExpiresIn,
+		})
+		return err
 	})
 	if err != nil {
-		return apikey.APIKeyCredential{}, errx.Wrap(err, "iamkit: create service account", errx.TypeInternal)
+		return apikey.APIKeyCredential{}, iamx.Translate(err, "create service account")
 	}
 	return apikey.APIKeyCredential{
 		ID:        cred.ID,
@@ -42,45 +43,56 @@ func (s *Store) Create(ctx context.Context, input apikey.CreateAPIKey, applicati
 	}, nil
 }
 
-// paginatedServiceAccounts matches IAMKit's paginated response envelope.
-type paginatedServiceAccounts struct {
-	Items []iamclient.ServiceAccount `json:"items"`
-}
-
+// List returns the environment's active (not revoked) service accounts.
 func (s *Store) List(ctx context.Context) ([]apikey.APIKey, error) {
-	var page paginatedServiceAccounts
-	path := "/environments/" + s.envID + "/service-accounts"
-	if err := s.client.Do(ctx, "GET", path, nil, &page); err != nil {
-		return nil, errx.Wrap(err, "iamkit: list service accounts", errx.TypeInternal)
+	var accounts []apiclient.ServiceAccount
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		accounts, err = env.ServiceAccounts(ctx)
+		return err
+	})
+	if err != nil {
+		return nil, iamx.Translate(err, "list service accounts")
 	}
-	out := make([]apikey.APIKey, len(page.Items))
-	for i, a := range page.Items {
-		out[i] = apikey.APIKey{
-			ID:            a.ID,
-			Name:          a.Name,
-			ApplicationID: a.ApplicationID,
-			ResourceID:    a.ResourceID,
-			Permissions:   a.Permissions,
-			ExpiresIn:     a.ExpiresIn,
+	out := make([]apikey.APIKey, 0, len(accounts))
+	for _, a := range accounts {
+		if a.RevokedAt != nil {
+			continue
 		}
+		out = append(out, toAPIKey(a))
 	}
 	return out, nil
 }
 
-func (s *Store) Revoke(ctx context.Context, id string) error {
-	if err := s.env.RevokeServiceAccount(ctx, id); err != nil {
-		return errx.Wrap(err, "iamkit: revoke service account", errx.TypeInternal)
+func (s *Store) Find(ctx context.Context, id string) (apikey.APIKey, error) {
+	var a apiclient.ServiceAccount
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		a, err = env.ServiceAccount(ctx, id)
+		return err
+	})
+	if err != nil {
+		return apikey.APIKey{}, iamx.Translate(err, "find service account")
 	}
-	return nil
+	return toAPIKey(a), nil
+}
+
+func (s *Store) Revoke(ctx context.Context, id string) error {
+	err := s.iam.Do(ctx, func(env apiclient.Environment) error {
+		return env.RevokeServiceAccount(ctx, id)
+	})
+	return iamx.Translate(err, "revoke service account")
 }
 
 // ListApplications returns the IAMKit applications registered in this
 // environment, so callers can pick which service a new service account
 // belongs to.
 func (s *Store) ListApplications(ctx context.Context) ([]apikey.Application, error) {
-	apps, err := s.env.Applications(ctx)
+	var apps []apiclient.Application
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		apps, err = env.Applications(ctx)
+		return err
+	})
 	if err != nil {
-		return nil, errx.Wrap(err, "iamkit: list applications", errx.TypeInternal)
+		return nil, iamx.Translate(err, "list applications")
 	}
 	out := make([]apikey.Application, len(apps))
 	for i, a := range apps {
@@ -91,6 +103,17 @@ func (s *Store) ListApplications(ctx context.Context) ([]apikey.Application, err
 		}
 	}
 	return out, nil
+}
+
+func toAPIKey(a apiclient.ServiceAccount) apikey.APIKey {
+	return apikey.APIKey{
+		ID:            a.ID,
+		Name:          a.Name,
+		ApplicationID: a.ApplicationID,
+		ResourceID:    a.ResourceID,
+		Permissions:   a.Permissions,
+		ExpiresIn:     a.ExpiresIn,
+	}
 }
 
 var _ apikey.Store = (*Store)(nil)

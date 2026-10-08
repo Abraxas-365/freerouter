@@ -19,6 +19,7 @@ type Queries interface {
 type Store interface {
 	Create(ctx context.Context, input CreateServiceAccount, applicationID, resourceID string) (ServiceAccountCredential, error)
 	List(ctx context.Context) ([]ServiceAccount, error)
+	Find(ctx context.Context, id string) (ServiceAccount, error)
 	ListApplications(ctx context.Context) ([]Application, error)
 	Revoke(ctx context.Context, id string) error
 }

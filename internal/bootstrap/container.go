@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/access/accessmodule"
@@ -10,6 +11,7 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/config"
 	"github.com/Abraxas-365/freerouter/internal/gateway/gatewaymodule"
 	"github.com/Abraxas-365/freerouter/internal/guardrail/guardrailmodule"
+	"github.com/Abraxas-365/freerouter/internal/iamx"
 	"github.com/Abraxas-365/freerouter/internal/provider/providermodule"
 	"github.com/Abraxas-365/freerouter/internal/providerkey/providerkeymodule"
 	"github.com/Abraxas-365/freerouter/internal/ratelimit/ratelimitmodule"
@@ -18,7 +20,6 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/usage/usagemodule"
 	"github.com/Abraxas-365/freerouter/internal/webhook/webhookmodule"
 	"github.com/Abraxas-365/iamkit/sdk/authclient"
-	"github.com/Abraxas-365/iamkit/sdk/iamclient"
 	"github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/jmoiron/sqlx"
@@ -33,7 +34,7 @@ type Container struct {
 	DB     *sqlx.DB
 	Redis  *redis.Client
 	Auth   *authclient.Client
-	Mgmt   *iamclient.Client
+	IAM    *iamx.Client // nil when IAMKIT_SERVICE_SECRET is not set
 	Server *server.Server
 
 	// Modules
@@ -45,14 +46,17 @@ type Container struct {
 	RoutingConfig routingconfigmodule.Module
 	Guardrail     guardrailmodule.Module
 	Webhook       webhookmodule.Module
-	APIKey        *apikeymodule.Module // nil when IAMKIT_MANAGEMENT_KEY is not set
-	Access        *accessmodule.Module // nil when IAMKIT_MANAGEMENT_KEY is not set
+	APIKey        *apikeymodule.Module // nil when IAMKIT_SERVICE_SECRET is not set
+	Access        *accessmodule.Module // nil when IAMKIT_SERVICE_SECRET is not set
 }
 
 // New creates and wires the entire application.
 func New(cfg config.Config) (*Container, error) {
 	c := &Container{Config: cfg}
 
+	if err := cfg.IAMKit.Validate(); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
 	if err := c.initInfrastructure(); err != nil {
 		return nil, fmt.Errorf("infrastructure: %w", err)
 	}
@@ -86,12 +90,17 @@ func (c *Container) initInfrastructure() error {
 }
 
 func (c *Container) initClients() {
-	// IAMKit auth client (token validation, introspection)
-	c.Auth = authclient.New(c.Config.IAMKit.BaseURL)
+	// One HTTP client for all IAMKit calls: bounded, so IAMKit being slow
+	// cannot pin request goroutines.
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 
-	// IAMKit management client (server-side setup)
-	if c.Config.IAMKit.ManagementKey != "" {
-		c.Mgmt = iamclient.New(c.Config.IAMKit.BaseURL, c.Config.IAMKit.ManagementKey)
+	// IAMKit auth client (token validation, introspection)
+	c.Auth = authclient.New(c.Config.IAMKit.BaseURL, authclient.WithHTTPClient(httpClient))
+
+	// IAMKit scoped API client: FreeRouter's backend service account on the
+	// environment's IAM resource (users, roles, service accounts).
+	if c.Config.IAMKit.ServiceSecret != "" {
+		c.IAM = iamx.New(c.Config.IAMKit.BaseURL, c.Config.IAMKit.EnvironmentID, c.Config.IAMKit.ServiceSecret, httpClient)
 	}
 }
 
@@ -131,19 +140,17 @@ func (c *Container) initModules() error {
 		DB: c.DB,
 	})
 
-	// API key module (requires IAMKit management key)
-	if c.Mgmt != nil {
+	// API key + access modules (require the IAMKit backend service account)
+	if c.IAM != nil {
 		m := apikeymodule.New(apikeymodule.Deps{
-			IAMKit:        c.Mgmt,
-			EnvironmentID: c.Config.IAMKit.EnvironmentID,
+			IAMKit:        c.IAM,
 			ApplicationID: c.Config.IAMKit.ApplicationID,
 			ResourceID:    c.Config.IAMKit.ResourceID,
 		})
 		c.APIKey = &m
 
 		a := accessmodule.New(accessmodule.Deps{
-			IAMKit:         c.Mgmt,
-			EnvironmentID:  c.Config.IAMKit.EnvironmentID,
+			IAMKit:         c.IAM,
 			ResourceID:     c.Config.IAMKit.ResourceID,
 			OrganizationID: c.Config.IAMKit.OrganizationID,
 		})
@@ -179,6 +186,10 @@ func (c *Container) initServer() {
 	// Common middleware
 	server.CommonMiddleware(app)
 
+	// One authenticator for every protected group: it owns the
+	// service-account token cache and its sweeper.
+	authenticate := server.AuthMiddleware(c.Auth, c.Config.IAMKit)
+
 	// Health check (public)
 	app.Get("/health", func(ctx *fiber.Ctx) error {
 		return ctx.JSON(fiber.Map{"status": "ok"})
@@ -187,7 +198,7 @@ func (c *Container) initServer() {
 	// Prometheus metrics (auth-protected)
 	if c.Gateway.Metrics != nil {
 		app.Get("/metrics",
-			server.AuthMiddleware(c.Auth, c.Config.IAMKit),
+			authenticate,
 			server.RequirePermissions(server.PermMetricsRead),
 			adaptor.HTTPHandlerFunc(
 				promhttp.HandlerFor(c.Gateway.Metrics.Registry, promhttp.HandlerOpts{}).ServeHTTP,
@@ -196,7 +207,7 @@ func (c *Container) initServer() {
 	}
 
 	// Protected API routes (admin)
-	api := app.Group("/api/v1", server.AuthMiddleware(c.Auth, c.Config.IAMKit))
+	api := app.Group("/api/v1", authenticate)
 
 	// Provider module routes (providers, models, mappings, fallbacks)
 	c.Provider.HTTP.RegisterRoutes(api)
@@ -222,7 +233,7 @@ func (c *Container) initServer() {
 	// Gateway admin routes (cache invalidation, etc.)
 	c.Gateway.HTTP.RegisterAdminRoutes(api.Group("/gateway"))
 
-	// Service account management routes (only available when IAMKit management key is set)
+	// Service account management routes (only available when the IAMKit service account is set)
 	if c.APIKey != nil {
 		c.APIKey.HTTP.RegisterRoutes(api.Group("/service-accounts"))
 	}
@@ -234,7 +245,7 @@ func (c *Container) initServer() {
 
 	// Gateway routes (OpenAI-compatible, requires gateway:invoke)
 	v1 := app.Group("/v1",
-		server.AuthMiddleware(c.Auth, c.Config.IAMKit),
+		authenticate,
 		server.RequirePermissions(server.PermGatewayInvoke),
 	)
 	c.Gateway.HTTP.RegisterRoutes(v1)

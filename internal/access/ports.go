@@ -49,7 +49,7 @@ type AssignmentQueries interface {
 // Store abstracts all IAMKit access management for users, roles, and assignments.
 type Store interface {
 	// Users
-	CreateUser(ctx context.Context, input CreateUser) (User, error)
+	CreateUser(ctx context.Context, input CreateUser, organizationID string) (User, error)
 	UpdateUser(ctx context.Context, id string, input UpdateUser) error
 	SuspendUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context) ([]User, error)
@@ -59,6 +59,7 @@ type Store interface {
 	CreateRole(ctx context.Context, input CreateRole, resourceID string) (Role, error)
 	UpdateRole(ctx context.Context, id string, input UpdateRole, resourceID string) error
 	DeleteRole(ctx context.Context, id string) error
+	FindRole(ctx context.Context, id string) (Role, error)
 	ListRoles(ctx context.Context) ([]Role, error)
 
 	// Assignments

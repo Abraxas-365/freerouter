@@ -1,33 +1,43 @@
+// Package accessiamkit implements access.Store against IAMKit's
+// permission-scoped API (/api/v1) as FreeRouter's backend service account
+// (iam:users:*, iam:roles:*).
 package accessiamkit
 
 import (
 	"context"
 
 	"github.com/Abraxas-365/freerouter/internal/access"
-	"github.com/Abraxas-365/freerouter/internal/errx"
-	"github.com/Abraxas-365/iamkit/sdk/iamclient"
+	"github.com/Abraxas-365/freerouter/internal/iamx"
+	"github.com/Abraxas-365/iamkit/sdk/apiclient"
 )
 
-// Store implements access.Store using the IAMKit management SDK.
+// Store implements access.Store using IAMKit.
 type Store struct {
-	env iamclient.Environment
+	iam *iamx.Client
 }
 
 // New creates an IAMKit-backed access store.
-func New(client *iamclient.Client, environmentID string) *Store {
-	return &Store{env: client.Environment(environmentID)}
+func New(iam *iamx.Client) *Store {
+	return &Store{iam: iam}
 }
 
 // ── Users ───────────────────────────────────────────────────────────
 
-func (s *Store) CreateUser(ctx context.Context, input access.CreateUser) (access.User, error) {
-	created, err := s.env.CreateUser(ctx, iamclient.CreateUser{
-		Email:    input.Email,
-		Name:     input.Name,
-		Password: input.Password,
+// CreateUser creates the user with organizationID as home organization,
+// which also makes them a member there (roles need a membership).
+func (s *Store) CreateUser(ctx context.Context, input access.CreateUser, organizationID string) (access.User, error) {
+	var created apiclient.Created
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		created, err = env.CreateUser(ctx, apiclient.CreateUser{
+			Email:              input.Email,
+			Name:               input.Name,
+			Password:           input.Password,
+			HomeOrganizationID: organizationID,
+		})
+		return err
 	})
 	if err != nil {
-		return access.User{}, errx.Wrap(err, "iamkit: create user", errx.TypeInternal)
+		return access.User{}, iamx.Translate(err, "create user")
 	}
 	return access.User{
 		ID:     created.ID,
@@ -38,140 +48,164 @@ func (s *Store) CreateUser(ctx context.Context, input access.CreateUser) (access
 }
 
 func (s *Store) UpdateUser(ctx context.Context, id string, input access.UpdateUser) error {
-	patch := iamclient.UserPatch{
-		Name:   input.Name,
-		Active: input.Active,
-	}
-	if err := s.env.UpdateUser(ctx, id, patch); err != nil {
-		return errx.Wrap(err, "iamkit: update user", errx.TypeInternal)
-	}
-	return nil
+	err := s.iam.Do(ctx, func(env apiclient.Environment) error {
+		return env.UpdateUser(ctx, id, apiclient.UserPatch{Name: input.Name, Active: input.Active})
+	})
+	return iamx.Translate(err, "update user")
 }
 
 func (s *Store) SuspendUser(ctx context.Context, id string) error {
-	if err := s.env.SuspendUser(ctx, id); err != nil {
-		return errx.Wrap(err, "iamkit: suspend user", errx.TypeInternal)
-	}
-	return nil
+	err := s.iam.Do(ctx, func(env apiclient.Environment) error {
+		return env.SuspendUser(ctx, id)
+	})
+	return iamx.Translate(err, "suspend user")
 }
 
 func (s *Store) ListUsers(ctx context.Context) ([]access.User, error) {
-	users, err := s.env.Users(ctx)
+	var users []apiclient.User
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		users, err = env.Users(ctx)
+		return err
+	})
 	if err != nil {
-		return nil, errx.Wrap(err, "iamkit: list users", errx.TypeInternal)
+		return nil, iamx.Translate(err, "list users")
 	}
 	out := make([]access.User, len(users))
 	for i, u := range users {
-		out[i] = access.User{
-			ID:     u.ID,
-			Email:  u.Email,
-			Name:   u.Name,
-			Active: u.Active,
-		}
+		out[i] = toUser(u)
 	}
 	return out, nil
 }
 
 func (s *Store) FindUser(ctx context.Context, id string) (access.User, error) {
-	u, err := s.env.User(ctx, id)
+	var u apiclient.User
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		u, err = env.User(ctx, id)
+		return err
+	})
 	if err != nil {
-		return access.User{}, errx.Wrap(err, "iamkit: find user", errx.TypeInternal)
+		return access.User{}, iamx.Translate(err, "find user")
 	}
-	return access.User{
-		ID:     u.ID,
-		Email:  u.Email,
-		Name:   u.Name,
-		Active: u.Active,
-	}, nil
+	return toUser(u), nil
+}
+
+func toUser(u apiclient.User) access.User {
+	return access.User{ID: u.ID, Email: u.Email, Name: u.Name, Active: u.Active}
 }
 
 // ── Roles ───────────────────────────────────────────────────────────
 
 func (s *Store) CreateRole(ctx context.Context, input access.CreateRole, resourceID string) (access.Role, error) {
-	created, err := s.env.CreateRole(ctx, iamclient.Role{
-		Name:        input.Name,
-		ResourceID:  resourceID,
-		Permissions: input.Permissions,
+	var created apiclient.Created
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		created, err = env.CreateRole(ctx, apiclient.Role{
+			Name:        input.Name,
+			ResourceID:  resourceID,
+			Permissions: input.Permissions,
+		})
+		return err
 	})
 	if err != nil {
-		return access.Role{}, errx.Wrap(err, "iamkit: create role", errx.TypeInternal)
+		return access.Role{}, iamx.Translate(err, "create role")
 	}
 	return access.Role{
 		ID:          created.ID,
 		Name:        input.Name,
+		ResourceID:  resourceID,
 		Permissions: input.Permissions,
 	}, nil
 }
 
 func (s *Store) UpdateRole(ctx context.Context, id string, input access.UpdateRole, resourceID string) error {
-	if err := s.env.UpdateRole(ctx, id, iamclient.Role{
-		Name:        input.Name,
-		ResourceID:  resourceID,
-		Permissions: input.Permissions,
-	}); err != nil {
-		return errx.Wrap(err, "iamkit: update role", errx.TypeInternal)
-	}
-	return nil
+	err := s.iam.Do(ctx, func(env apiclient.Environment) error {
+		return env.UpdateRole(ctx, id, apiclient.Role{
+			Name:        input.Name,
+			ResourceID:  resourceID,
+			Permissions: input.Permissions,
+		})
+	})
+	return iamx.Translate(err, "update role")
 }
 
 func (s *Store) DeleteRole(ctx context.Context, id string) error {
-	if err := s.env.DeleteRole(ctx, id); err != nil {
-		return errx.Wrap(err, "iamkit: delete role", errx.TypeInternal)
+	err := s.iam.Do(ctx, func(env apiclient.Environment) error {
+		return env.DeleteRole(ctx, id)
+	})
+	return iamx.Translate(err, "delete role")
+}
+
+func (s *Store) FindRole(ctx context.Context, id string) (access.Role, error) {
+	var r apiclient.Role
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		r, err = env.Role(ctx, id)
+		return err
+	})
+	if err != nil {
+		return access.Role{}, iamx.Translate(err, "find role")
 	}
-	return nil
+	return toRole(r), nil
 }
 
 func (s *Store) ListRoles(ctx context.Context) ([]access.Role, error) {
-	roles, err := s.env.Roles(ctx)
+	var roles []apiclient.Role
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		roles, err = env.Roles(ctx)
+		return err
+	})
 	if err != nil {
-		return nil, errx.Wrap(err, "iamkit: list roles", errx.TypeInternal)
+		return nil, iamx.Translate(err, "list roles")
 	}
 	out := make([]access.Role, len(roles))
 	for i, r := range roles {
-		out[i] = access.Role{
-			ID:          r.ID,
-			Name:        r.Name,
-			Permissions: r.Permissions,
-		}
+		out[i] = toRole(r)
 	}
 	return out, nil
+}
+
+func toRole(r apiclient.Role) access.Role {
+	return access.Role{ID: r.ID, Name: r.Name, ResourceID: r.ResourceID, Permissions: r.Permissions}
 }
 
 // ── Assignments ─────────────────────────────────────────────────────
 
 func (s *Store) AssignRole(ctx context.Context, input access.AssignRole, organizationID string) error {
-	if err := s.env.AssignRole(ctx, iamclient.RoleAssignment{
-		OrganizationID: organizationID,
-		UserID:         input.UserID,
-		RoleID:         input.RoleID,
-	}); err != nil {
-		return errx.Wrap(err, "iamkit: assign role", errx.TypeInternal)
-	}
-	return nil
+	err := s.iam.Do(ctx, func(env apiclient.Environment) error {
+		return env.AssignRole(ctx, apiclient.RoleAssignment{
+			OrganizationID: organizationID,
+			UserID:         input.UserID,
+			RoleID:         input.RoleID,
+		})
+	})
+	return iamx.Translate(err, "assign role")
 }
 
 func (s *Store) UnassignRole(ctx context.Context, input access.AssignRole, organizationID string) error {
-	if err := s.env.UnassignRole(ctx, iamclient.RoleAssignment{
-		OrganizationID: organizationID,
-		UserID:         input.UserID,
-		RoleID:         input.RoleID,
-	}); err != nil {
-		return errx.Wrap(err, "iamkit: unassign role", errx.TypeInternal)
-	}
-	return nil
+	err := s.iam.Do(ctx, func(env apiclient.Environment) error {
+		return env.UnassignRole(ctx, apiclient.RoleAssignment{
+			OrganizationID: organizationID,
+			UserID:         input.UserID,
+			RoleID:         input.RoleID,
+		})
+	})
+	return iamx.Translate(err, "unassign role")
 }
 
 func (s *Store) ListAssignments(ctx context.Context) ([]access.RoleAssignment, error) {
-	assignments, err := s.env.RoleAssignments(ctx)
+	var views []apiclient.RoleAssignmentView
+	err := s.iam.Do(ctx, func(env apiclient.Environment) (err error) {
+		views, err = env.RoleAssignments(ctx)
+		return err
+	})
 	if err != nil {
-		return nil, errx.Wrap(err, "iamkit: list role assignments", errx.TypeInternal)
+		return nil, iamx.Translate(err, "list role assignments")
 	}
-	out := make([]access.RoleAssignment, len(assignments))
-	for i, a := range assignments {
+	out := make([]access.RoleAssignment, len(views))
+	for i, a := range views {
 		out[i] = access.RoleAssignment{
 			UserID:         a.UserID,
 			RoleID:         a.RoleID,
 			OrganizationID: a.OrganizationID,
+			ResourceID:     a.ResourceID,
 		}
 	}
 	return out, nil
