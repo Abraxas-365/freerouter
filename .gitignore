@@ -1,5 +1,6 @@
 # Secrets
 secrets/
+.dev-secrets/
 .env
 
 # Build
