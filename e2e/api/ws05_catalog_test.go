@@ -611,7 +611,7 @@ func TestWS05_UnknownReferences(t *testing.T) {
 	m := ws05Model(t, Uniq("ws05-ref-m"))
 	for _, c := range []struct {
 		name, path string
-		body map[string]any
+		body       map[string]any
 	}{
 		{"mapping unknown model", "/mappings", map[string]any{"model_id": ws05Missing, "provider_id": p, "external_id": "x"}},
 		{"mapping unknown provider", "/mappings", map[string]any{"model_id": m, "provider_id": ws05Missing, "external_id": "x"}},
