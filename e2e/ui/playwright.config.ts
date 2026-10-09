@@ -11,7 +11,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  // Concurrent runs (several workstreams at once) must not share output dirs.
+  outputDir: process.env.PW_OUTPUT_DIR ?? `test-results/${process.env.WS ?? "default"}`,
+  reporter: [["list"], ["html", { open: "never", outputFolder: `playwright-report/${process.env.WS ?? "default"}` }]],
   use: {
     baseURL: fixtures.urls.web,
     trace: "retain-on-failure",
