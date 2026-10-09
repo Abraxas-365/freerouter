@@ -12,8 +12,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -432,6 +434,53 @@ func TestE2E_ChatCompletions_FallbackOnRetryableError(t *testing.T) {
 	}
 	if chatResp.Choices[0].Message.Content != "from fallback" {
 		t.Fatalf("expected fallback content, got %+v", chatResp.Choices)
+	}
+}
+
+// A streaming request whose primary fails before the first chunk must fall
+// over like a sync one; when every route fails the client gets an error
+// status, never an empty 200.
+func TestE2E_ChatCompletions_StreamFallbackOnRetryableError(t *testing.T) {
+	env := newE2EEnv(t)
+	ctx := context.Background()
+
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer down.Close()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"from fallback\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer up.Close()
+
+	primaryID, _ := env.registerRoute(t, "e2e-sprimary", down.URL, "p-real", "stream-primary")
+	fallbackID, _ := env.registerRoute(t, "e2e-sfallback", up.URL, "f-real", "stream-fallback")
+	if _, err := env.providerSvc.CreateFallback(ctx, provider.CreateFallback{
+		ModelID: primaryID, FallbackModelID: fallbackID, Priority: 1,
+	}); err != nil {
+		t.Fatalf("create fallback: %v", err)
+	}
+	_, _ = env.registerRoute(t, "e2e-sdead", down.URL, "d-real", "stream-dead")
+
+	streamBody := func(model string) []byte {
+		b, _ := json.Marshal(gateway.ChatRequest{Model: model, Stream: true,
+			Messages: []gateway.Message{{Role: "user", Content: "hi"}}})
+		return b
+	}
+
+	resp := doRequest(t, env.app, http.MethodPost, "/v1/chat/completions", streamBody("stream-primary"))
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "from fallback") || !strings.HasSuffix(string(raw), "data: [DONE]\n\n") {
+		t.Fatalf("stream via fallback: status %d body %q", resp.StatusCode, raw)
+	}
+
+	resp = doRequest(t, env.app, http.MethodPost, "/v1/chat/completions", streamBody("stream-dead"))
+	raw, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("stream with every route down: want 502/503, got %d %q", resp.StatusCode, raw)
 	}
 }
 

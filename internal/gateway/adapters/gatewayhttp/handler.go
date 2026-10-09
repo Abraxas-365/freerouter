@@ -1,6 +1,7 @@
 package gatewayhttp
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -127,9 +128,13 @@ func (h *Handler) ChatCompletions(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if release != nil {
-		defer release()
-	}
+	// A committed stream outlives this handler; it takes release over
+	// (setting it to nil) and frees the concurrency slot when it ends.
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 
 	var req gateway.ChatRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -196,7 +201,7 @@ func (h *Handler) ChatCompletions(c *fiber.Ctx) error {
 	rawBody := c.Body()
 
 	if req.Stream {
-		return h.streamWithRetry(c, routes, rawBody, req.Model)
+		return h.streamWithRetry(c, routes, rawBody, req.Model, &release)
 	}
 	return h.callWithRetry(c, routes, rawBody, req.Model, cacheKey)
 }
@@ -327,79 +332,144 @@ func (h *Handler) callWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, raw
 	)
 }
 
-// streamWithRetry tries routes in order for streaming requests.
-func (h *Handler) streamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, rawBody []byte, modelName string) error {
+// streamWithRetry tries routes in order for streaming requests. An attempt
+// that fails before its first chunk falls over to the next route exactly
+// like a synchronous call, so a dead upstream yields a real error status.
+// The response is committed (200, text/event-stream) only once a chunk has
+// arrived; from then on chunks are flushed to the client as they come, and a
+// failure can only be reported as a final SSE error event. On commit the
+// stream takes over *release, the caller's concurrency-slot release.
+func (h *Handler) streamWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, rawBody []byte, modelName string, release *func()) error {
+	body := append([]byte(nil), rawBody...)
 	var lastErr error
+	var lastStatus int
 
 	for attempt, route := range routes {
 		if attempt > 0 {
-			delay := gateway.RetryDelay(attempt - 1)
-			time.Sleep(delay)
+			time.Sleep(gateway.RetryDelay(attempt - 1))
 		}
 
-		err := h.doStream(c, route, rawBody, modelName)
+		s := h.startStream(route, body)
+		if first, ok := <-s.chunks; ok {
+			done := *release
+			*release = nil
+			h.commitStream(c, s, route, modelName, first, done)
+			return nil
+		}
+
+		// The attempt ended without a single chunk.
+		status, err := s.status, s.err
 		if err == nil {
-			return nil
+			status, err = http.StatusBadGateway, errx.New("upstream closed the stream without data", errx.TypeExternal)
 		}
-
-		lastErr = err
-
-		// Check if we've already started writing to the client
-		if c.Response().StatusCode() == fiber.StatusOK {
-			// Can't retry — headers already sent
-			return nil
+		lastErr, lastStatus = err, status
+		latency := time.Since(s.start)
+		h.logUsage(route, modelName, nil, status, latency, true, err)
+		if h.metrics != nil {
+			h.metrics.ObserveRequest(modelName, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusError, latency)
+			h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", status))
 		}
-
+		if !gateway.IsAuthError(status) && !gateway.IsRetryable(status) {
+			break
+		}
+		h.healthTracker.ReportError(route.KeyID, status)
+		h.fireKeyHealthWebhook(route, status)
 		slog.Warn("stream attempt failed, trying next route",
 			"key_id", route.KeyID,
 			"provider", route.ProviderID,
+			"status", status,
 			"attempt", attempt+1)
 	}
 
 	if lastErr != nil {
 		return lastErr
 	}
-	return errx.New("all routes exhausted for streaming", errx.TypeExternal)
+	return errx.New(fmt.Sprintf("all routes exhausted, last status: %d", lastStatus), errx.TypeExternal)
 }
 
-func (h *Handler) doStream(c *fiber.Ctx, route *gateway.RouteResult, rawBody []byte, modelName string) error {
+// upstreamStream is one streaming attempt running in the background. Its SSE
+// chunks arrive on chunks, which is closed when the attempt ends; status and
+// err are valid once chunks is closed.
+type upstreamStream struct {
+	chunks chan []byte
+	status int
+	err    error
+	start  time.Time
+	cancel context.CancelFunc
+}
+
+func (h *Handler) startStream(route *gateway.RouteResult, body []byte) *upstreamStream {
+	// Not tied to the request context: fasthttp's does not end when the
+	// client leaves; commitStream cancels when a write to the client fails.
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &upstreamStream{chunks: make(chan []byte, 16), start: time.Now(), cancel: cancel}
+	go func() {
+		defer close(s.chunks)
+		s.status, s.err = h.upstream.Stream(ctx, route, body, func(chunk []byte) error {
+			select {
+			case s.chunks <- chunk:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+	}()
+	return s
+}
+
+// streamErrorEvent tells an OpenAI-style client that the stream was cut
+// short; without it a truncated stream looks like a clean end.
+var streamErrorEvent = []byte(`data: {"error":{"message":"upstream stream ended unexpectedly","type":"upstream_error","code":"stream_interrupted"}}` + "\n\n")
+
+// commitStream sends the 200 SSE response and relays the rest of s, starting
+// with its first chunk, flushing each chunk as it arrives. release (may be
+// nil) runs once the stream has ended.
+func (h *Handler) commitStream(c *fiber.Ctx, s *upstreamStream, route *gateway.RouteResult, modelName string, first []byte, release func()) {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
 	c.Set("Transfer-Encoding", "chunked")
 
-	ctx := c.Context()
-	start := time.Now()
-
-	status, err := h.upstream.Stream(c.Context(), route, rawBody, func(chunk []byte) error {
-		_, writeErr := ctx.Write(chunk)
-		if writeErr != nil {
-			return writeErr
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		defer s.cancel()
+		if release != nil {
+			defer release()
 		}
-		return nil
-	})
-
-	latency := time.Since(start)
-
-	if err != nil {
-		if gateway.IsAuthError(status) || gateway.IsRetryable(status) {
-			h.healthTracker.ReportError(route.KeyID, status)
-			h.fireKeyHealthWebhook(route, status)
+		clientGone := false
+		send := func(b []byte) {
+			if clientGone {
+				return
+			}
+			if _, err := w.Write(b); err != nil || w.Flush() != nil {
+				clientGone = true
+				s.cancel()
+			}
 		}
-		h.logUsage(route, modelName, nil, status, latency, true, err)
+
+		send(first)
+		for chunk := range s.chunks {
+			send(chunk)
+		}
+		latency := time.Since(s.start)
+
+		if s.err != nil {
+			send(streamErrorEvent)
+			h.healthTracker.ReportError(route.KeyID, http.StatusBadGateway)
+			h.fireKeyHealthWebhook(route, http.StatusBadGateway)
+			h.logUsage(route, modelName, nil, http.StatusBadGateway, latency, true, s.err)
+			if h.metrics != nil {
+				h.metrics.ObserveRequest(modelName, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusError, latency)
+				h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", http.StatusBadGateway))
+			}
+			return
+		}
+
+		h.healthTracker.ReportSuccessWithLatency(route.KeyID, latency)
+		h.logUsage(route, modelName, nil, http.StatusOK, latency, true, nil)
 		if h.metrics != nil {
-			h.metrics.ObserveRequest(modelName, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusError, latency)
-			h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", status))
+			h.metrics.ObserveRequest(modelName, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusOK, latency)
 		}
-		return err
-	}
-
-	h.healthTracker.ReportSuccessWithLatency(route.KeyID, latency)
-	h.logUsage(route, modelName, nil, http.StatusOK, latency, true, nil)
-	if h.metrics != nil {
-		h.metrics.ObserveRequest(modelName, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusOK, latency)
-	}
-	return nil
+	})
 }
 
 // ── List Models ──────────────────────────────────────────────────────
@@ -617,7 +687,8 @@ func (h *Handler) checkRateLimit(c *fiber.Ctx) (string, func(), error) {
 	}
 
 	release := func() {
-		h.rateLimiter.Release(c.Context(), subjectID)
+		// Background: a committed stream releases after the handler returned.
+		h.rateLimiter.Release(context.Background(), subjectID)
 	}
 	return subjectID, release, nil
 }
