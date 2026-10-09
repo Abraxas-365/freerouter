@@ -1,6 +1,21 @@
 package gatewayhttp
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestWithModel(t *testing.T) {
+	got := string(withModel([]byte(`data: {"id":"c","model":"fake-ok","choices":[{"index":0,"delta":{"content":"hi"}}]}`+"\n\n"), "e2e-ok"))
+	if !strings.Contains(got, `"model":"e2e-ok"`) || strings.Contains(got, "fake-ok") || !strings.Contains(got, `"content":"hi"`) || !strings.HasSuffix(got, "\n\n") {
+		t.Fatalf("model not rewritten: %q", got)
+	}
+	for _, in := range []string{"data: [DONE]\n\n", `data: {"choices":[]}` + "\n\n", "data: not-json\n\n"} {
+		if got := string(withModel([]byte(in), "e2e-ok")); got != in {
+			t.Errorf("%q changed to %q", in, got)
+		}
+	}
+}
 
 func TestStreamUsage(t *testing.T) {
 	t.Run("openai final usage chunk", func(t *testing.T) {

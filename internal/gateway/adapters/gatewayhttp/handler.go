@@ -459,11 +459,13 @@ func (h *Handler) commitStream(c *fiber.Ctx, s *upstreamStream, route *gateway.R
 		}
 
 		usage := &streamUsage{}
-		send(first)
-		usage.observe(first)
-		for chunk := range s.chunks {
-			send(chunk)
+		relay := func(chunk []byte) {
 			usage.observe(chunk)
+			send(withModel(chunk, modelName))
+		}
+		relay(first)
+		for chunk := range s.chunks {
+			relay(chunk)
 		}
 		latency := time.Since(s.start)
 		resp := usage.response()
@@ -489,6 +491,30 @@ func (h *Handler) commitStream(c *fiber.Ctx, s *upstreamStream, route *gateway.R
 			}
 		}
 	})
+}
+
+// withModel rewrites the "model" field of an SSE chunk to the name the client
+// requested, as synchronous responses do, so streams do not leak the
+// upstream's external model id. Other chunks pass through unchanged.
+func withModel(sse []byte, model string) []byte {
+	data := extractSSEData(sse)
+	if data == "" || data == "[DONE]" {
+		return sse
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal([]byte(data), &fields) != nil {
+		return sse
+	}
+	if _, ok := fields["model"]; !ok {
+		return sse
+	}
+	name, _ := json.Marshal(model)
+	fields["model"] = name
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return sse
+	}
+	return []byte("data: " + string(out) + "\n\n")
 }
 
 // streamUsage collects token usage and the finish reason from the OpenAI
