@@ -30,6 +30,9 @@ func (s *Service) Create(ctx context.Context, input apikey.CreateServiceAccount)
 	if err := input.Validate(); err != nil {
 		return apikey.ServiceAccountCredential{}, err
 	}
+	if err := input.AuthorizeGrant(); err != nil {
+		return apikey.ServiceAccountCredential{}, err
+	}
 	applicationID := input.ApplicationID
 	if applicationID == "" {
 		applicationID = s.applicationID

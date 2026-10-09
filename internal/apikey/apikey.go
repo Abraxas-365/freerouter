@@ -41,6 +41,10 @@ type CreateServiceAccount struct {
 	ApplicationID string   `json:"application_id,omitempty"` // IAMKit application UUID; defaults to FreeRouter's own application when omitted
 	Permissions   []string `json:"permissions"`
 	ExpiresIn     string   `json:"expires_in,omitempty"` // Go duration string, e.g. "8760h"
+
+	// CallerPermissions are the permissions of the authenticated caller,
+	// set by the transport from the token, never from the request body.
+	CallerPermissions []string `json:"-"`
 }
 
 // Validate checks the create request and normalises permissions.
@@ -56,6 +60,23 @@ func (c *CreateServiceAccount) Validate() error {
 	for _, p := range c.Permissions {
 		if !server.ValidPermissions[p] {
 			return errx.Validation(fmt.Sprintf("unknown permission: %q", p))
+		}
+	}
+	return nil
+}
+
+// AuthorizeGrant ensures the caller holds every permission it is granting,
+// so service-accounts:write cannot mint a key more powerful than its holder.
+// Call after Validate (which fills in the default permissions). A caller
+// without permissions can grant nothing.
+func (c CreateServiceAccount) AuthorizeGrant() error {
+	held := make(map[string]bool, len(c.CallerPermissions))
+	for _, p := range c.CallerPermissions {
+		held[p] = true
+	}
+	for _, p := range c.Permissions {
+		if !held[p] {
+			return errx.Forbidden(fmt.Sprintf("cannot grant permission you do not hold: %q", p))
 		}
 	}
 	return nil
