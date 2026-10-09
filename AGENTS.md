@@ -89,7 +89,7 @@ internal/
     translator_anthropic.go  -> Anthropic Messages API translator
     translator_google.go     -> Google Gemini API translator
     translator_cohere.go     -> Cohere v2 API translator
-    upstream.go       -> HTTP client: Call (sync), Stream (SSE), CallRaw
+    upstream.go       -> HTTP client: Call (sync), Stream (SSE), CallRaw; transport errors → 502/504 (retryable), response-header timeout
     router.go         -> Model→provider+key resolution with fallback
     keyhealth.go      -> In-memory key health tracker (sliding window)
     retry.go          -> Retryable status codes, exponential backoff

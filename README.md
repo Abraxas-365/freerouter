@@ -252,6 +252,7 @@ Everything is configured via environment variables — see `.env.example` for th
 | `ENCRYPTION_KEY` | — | 32-byte hex key for encrypting stored provider API keys |
 | `CACHE_ENABLED` / `CACHE_TTL_SECONDS` | `true` / `60` | Response cache for non-streaming chat completions |
 | `METRICS_ENABLED` | `true` | Exposes Prometheus metrics at `GET /metrics` |
+| `UPSTREAM_RESPONSE_TIMEOUT_SECONDS` | `120` | How long one upstream attempt may take to start answering before the gateway fails over to the next route. Non-streaming providers answer only when generation ends, so keep it above your longest expected completion |
 | `IAMKIT_BASE_URL` / `IAMKIT_JWT_ISSUER` / `IAMKIT_AUDIENCE` | `http://localhost:8080` / same / — | IAMKit connection and the token boundaries every request is checked against |
 | `IAMKIT_ENVIRONMENT_ID` / `IAMKIT_APPLICATION_ID` / `IAMKIT_RESOURCE_ID` / `IAMKIT_ORGANIZATION_ID` | — | IAMKit boundary IDs (written by `make bootstrap`); the server refuses to start without them |
 | `IAMKIT_SERVICE_SECRET` | — | FreeRouter's backend service account (`ik_svc_`) on the IAM resource, least privilege (`scripts/permissions.sh`). Enables user/role and API-key management; `ik_mgmt_` keys are rejected |
