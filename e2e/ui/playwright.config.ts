@@ -6,6 +6,8 @@ const fixtures = JSON.parse(readFileSync(join(__dirname, "..", ".run", "fixtures
 
 export default defineConfig({
   testDir: "./tests",
+  // Visual baselines (WS-10) are committed under tests/__screenshots__.
+  snapshotPathTemplate: "{testDir}/__screenshots__/{testFilePath}/{arg}{ext}",
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: false,
