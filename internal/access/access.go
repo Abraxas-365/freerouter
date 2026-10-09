@@ -19,6 +19,9 @@ type User struct {
 	Email  string `json:"email"`
 	Name   string `json:"name"`
 	Active bool   `json:"active"`
+	// HomeOrganizationID is the IAMKit organization owning the record;
+	// only users homed in FreeRouter's organization are exposed.
+	HomeOrganizationID string `json:"-"`
 }
 
 // CreateUser is the input for registering a new user.

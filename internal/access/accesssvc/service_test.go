@@ -67,9 +67,33 @@ func (f *fakeStore) ListAssignments(context.Context) ([]access.RoleAssignment, e
 	return f.assignments, nil
 }
 
-func isNotFound(err error) bool {
-	var x *errx.Error
-	return errx.As(err, &x) && x.Type == errx.TypeNotFound
+// Users: "u" is homed in FreeRouter's organization, "foreign" in another
+// one and "nohome" in none.
+var fakeUsers = map[string]access.User{
+	"u":       {ID: "u", HomeOrganizationID: org},
+	"foreign": {ID: "foreign", HomeOrganizationID: "other-org"},
+	"nohome":  {ID: "nohome"},
+}
+
+func (f *fakeStore) ListUsers(context.Context) ([]access.User, error) {
+	return []access.User{fakeUsers["u"], fakeUsers["foreign"], fakeUsers["nohome"]}, nil
+}
+
+func (f *fakeStore) FindUser(_ context.Context, id string) (access.User, error) {
+	if u, ok := fakeUsers[id]; ok {
+		return u, nil
+	}
+	return access.User{}, errx.NotFound("user not found")
+}
+
+func (f *fakeStore) UpdateUser(_ context.Context, id string, _ access.UpdateUser) error {
+	f.calls = append(f.calls, "update-user:"+id)
+	return nil
+}
+
+func (f *fakeStore) SuspendUser(_ context.Context, id string) error {
+	f.calls = append(f.calls, "suspend-user:"+id)
+	return nil
 }
 
 func TestForeignRolesAreInvisible(t *testing.T) {
@@ -135,5 +159,46 @@ func TestListAssignmentsOnlyOwn(t *testing.T) {
 	got, err := New(store, ownResource, org).ListAssignments(context.Background())
 	if err != nil || len(got) != 1 || got[0].RoleID != "own" || got[0].OrganizationID != org {
 		t.Fatalf("ListAssignments = %v, %v; want only the own role in the configured org", got, err)
+	}
+}
+
+func TestForeignUsersAreInvisible(t *testing.T) {
+	ctx := context.Background()
+	store := &fakeStore{}
+	svc := New(store, ownResource, org)
+
+	users, err := svc.ListUsers(ctx)
+	if err != nil || len(users) != 1 || users[0].ID != "u" {
+		t.Fatalf("ListUsers = %v, %v; want only the own-org user", users, err)
+	}
+
+	name := "x"
+	for _, id := range []string{"foreign", "nohome", "missing"} {
+		_, findErr := svc.FindUser(ctx, id)
+		checks := map[string]error{
+			"find":     findErr,
+			"update":   svc.UpdateUser(ctx, id, access.UpdateUser{Name: &name}),
+			"suspend":  svc.SuspendUser(ctx, id),
+			"assign":   svc.AssignRole(ctx, access.AssignRole{UserID: id, RoleID: "own"}),
+			"unassign": svc.UnassignRole(ctx, access.AssignRole{UserID: id, RoleID: "own"}),
+		}
+		for op, err := range checks {
+			if !isNotFound(err) {
+				t.Errorf("%s %s user: err = %v, want NOT_FOUND", op, id, err)
+			}
+		}
+	}
+	if len(store.calls) != 0 {
+		t.Fatalf("store mutated for a foreign user: %v", store.calls)
+	}
+
+	if err := svc.UpdateUser(ctx, "u", access.UpdateUser{Name: &name}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SuspendUser(ctx, "u"); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.calls) != 2 {
+		t.Fatalf("calls = %v, want update and suspend of the own user", store.calls)
 	}
 }

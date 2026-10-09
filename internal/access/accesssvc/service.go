@@ -11,11 +11,12 @@ import (
 // It validates input and delegates to the IAMKit-backed store,
 // injecting FreeRouter's IAMKit resource and organization IDs.
 //
-// The backend IAMKit credential's iam:roles:* permissions are
-// environment-wide, so this service is the boundary: only roles on
-// FreeRouter's resource are listed, changed, deleted or assigned. A
-// FreeRouter admin can never hand out roles of another resource (for
-// example the IAM resource's administration roles).
+// The backend IAMKit credential's iam:users:* and iam:roles:* permissions
+// are environment-wide, so this service is the boundary: only users homed
+// in FreeRouter's organization and roles on FreeRouter's resource are
+// listed, changed, deleted or assigned. A FreeRouter admin can never see or
+// touch another organization's users, nor hand out roles of another
+// resource (for example the IAM resource's administration roles).
 type Service struct {
 	store          access.Store
 	resourceID     string
@@ -41,28 +42,66 @@ func (s *Service) CreateUser(ctx context.Context, input access.CreateUser) (acce
 }
 
 func (s *Service) UpdateUser(ctx context.Context, id string, input access.UpdateUser) error {
-	if id == "" {
-		return errx.Validation("user id is required")
+	if err := s.ownUser(ctx, id); err != nil {
+		return err
 	}
 	return s.store.UpdateUser(ctx, id, input)
 }
 
 func (s *Service) SuspendUser(ctx context.Context, id string) error {
-	if id == "" {
-		return errx.Validation("user id is required")
+	if err := s.ownUser(ctx, id); err != nil {
+		return err
 	}
 	return s.store.SuspendUser(ctx, id)
 }
 
 func (s *Service) ListUsers(ctx context.Context) ([]access.User, error) {
-	return s.store.ListUsers(ctx)
+	users, err := s.store.ListUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]access.User, 0, len(users))
+	for _, u := range users {
+		if u.HomeOrganizationID == s.organizationID {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) FindUser(ctx context.Context, id string) (access.User, error) {
 	if id == "" {
 		return access.User{}, errx.Validation("user id is required")
 	}
-	return s.store.FindUser(ctx, id)
+	u, err := s.store.FindUser(ctx, id)
+	if err != nil {
+		if isNotFound(err) {
+			return access.User{}, errUserNotFound()
+		}
+		return access.User{}, err
+	}
+	if u.HomeOrganizationID != s.organizationID {
+		return access.User{}, errUserNotFound()
+	}
+	return u, nil
+}
+
+// Foreign and nonexistent users/roles get the same error, so callers cannot
+// probe which ids exist outside FreeRouter's boundary.
+func errUserNotFound() error { return errx.NotFound("user not found") }
+func errRoleNotFound() error { return errx.NotFound("role not found") }
+
+func isNotFound(err error) bool {
+	var x *errx.Error
+	return errx.As(err, &x) && x.Type == errx.TypeNotFound
+}
+
+// ownUser succeeds only for a user homed in FreeRouter's organization; any
+// other user is reported as not found. The backend credential's
+// iam:users:* permissions are environment-wide, so this is the boundary.
+func (s *Service) ownUser(ctx context.Context, id string) error {
+	_, err := s.FindUser(ctx, id)
+	return err
 }
 
 // ── Roles ───────────────────────────────────────────────────────────
@@ -113,10 +152,13 @@ func (s *Service) ownRole(ctx context.Context, id string) error {
 	}
 	role, err := s.store.FindRole(ctx, id)
 	if err != nil {
+		if isNotFound(err) {
+			return errRoleNotFound()
+		}
 		return err
 	}
 	if role.ResourceID != s.resourceID {
-		return errx.NotFound("role not found")
+		return errRoleNotFound()
 	}
 	return nil
 }
@@ -130,6 +172,9 @@ func (s *Service) AssignRole(ctx context.Context, input access.AssignRole) error
 	if err := s.ownRole(ctx, input.RoleID); err != nil {
 		return err
 	}
+	if err := s.ownUser(ctx, input.UserID); err != nil {
+		return err
+	}
 	return s.store.AssignRole(ctx, input, s.organizationID)
 }
 
@@ -138,6 +183,9 @@ func (s *Service) UnassignRole(ctx context.Context, input access.AssignRole) err
 		return err
 	}
 	if err := s.ownRole(ctx, input.RoleID); err != nil {
+		return err
+	}
+	if err := s.ownUser(ctx, input.UserID); err != nil {
 		return err
 	}
 	return s.store.UnassignRole(ctx, input, s.organizationID)

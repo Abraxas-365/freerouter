@@ -40,10 +40,11 @@ func (s *Store) CreateUser(ctx context.Context, input access.CreateUser, organiz
 		return access.User{}, iamx.Translate(err, "create user")
 	}
 	return access.User{
-		ID:     created.ID,
-		Email:  input.Email,
-		Name:   input.Name,
-		Active: true,
+		ID:                 created.ID,
+		Email:              input.Email,
+		Name:               input.Name,
+		Active:             true,
+		HomeOrganizationID: organizationID,
 	}, nil
 }
 
@@ -90,7 +91,7 @@ func (s *Store) FindUser(ctx context.Context, id string) (access.User, error) {
 }
 
 func toUser(u apiclient.User) access.User {
-	return access.User{ID: u.ID, Email: u.Email, Name: u.Name, Active: u.Active}
+	return access.User{ID: u.ID, Email: u.Email, Name: u.Name, Active: u.Active, HomeOrganizationID: u.HomeOrganizationID}
 }
 
 // ── Roles ───────────────────────────────────────────────────────────
