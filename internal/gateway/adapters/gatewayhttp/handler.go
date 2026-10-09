@@ -446,17 +446,21 @@ func (h *Handler) commitStream(c *fiber.Ctx, s *upstreamStream, route *gateway.R
 			}
 		}
 
+		usage := &streamUsage{}
 		send(first)
+		usage.observe(first)
 		for chunk := range s.chunks {
 			send(chunk)
+			usage.observe(chunk)
 		}
 		latency := time.Since(s.start)
+		resp := usage.response()
 
 		if s.err != nil {
 			send(streamErrorEvent)
 			h.healthTracker.ReportError(route.KeyID, http.StatusBadGateway)
 			h.fireKeyHealthWebhook(route, http.StatusBadGateway)
-			h.logUsage(route, modelName, nil, http.StatusBadGateway, latency, true, s.err)
+			h.logUsage(route, modelName, resp, http.StatusBadGateway, latency, true, s.err)
 			if h.metrics != nil {
 				h.metrics.ObserveRequest(modelName, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusError, latency)
 				h.metrics.ObserveError(route.ProviderID.String(), fmt.Sprintf("%d", http.StatusBadGateway))
@@ -465,11 +469,74 @@ func (h *Handler) commitStream(c *fiber.Ctx, s *upstreamStream, route *gateway.R
 		}
 
 		h.healthTracker.ReportSuccessWithLatency(route.KeyID, latency)
-		h.logUsage(route, modelName, nil, http.StatusOK, latency, true, nil)
+		h.logUsage(route, modelName, resp, http.StatusOK, latency, true, nil)
 		if h.metrics != nil {
 			h.metrics.ObserveRequest(modelName, route.ProviderID.String(), gateway.ProtocolOpenAI, gateway.StatusOK, latency)
+			if resp != nil && resp.Usage != nil {
+				h.metrics.ObserveTokens(modelName, route.ProviderID.String(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+			}
 		}
 	})
+}
+
+// streamUsage collects token usage and the finish reason from the OpenAI
+// SSE chunks of a stream. Providers report usage differently: OpenAI sends
+// cumulative totals in the final chunk, Anthropic splits input tokens
+// (message_start) from output tokens (message_delta), so each non-zero
+// field overwrites the previous value.
+type streamUsage struct {
+	usage  gateway.Usage
+	seen   bool
+	finish *string
+}
+
+func (u *streamUsage) observe(sse []byte) {
+	data := extractSSEData(sse)
+	if data == "" || data == "[DONE]" {
+		return
+	}
+	var chunk gateway.ChatStreamChunk
+	if json.Unmarshal([]byte(data), &chunk) != nil {
+		return
+	}
+	for _, ch := range chunk.Choices {
+		if ch.FinishReason != nil {
+			u.finish = ch.FinishReason
+		}
+	}
+	if chunk.Usage == nil {
+		return
+	}
+	u.seen = true
+	in := chunk.Usage
+	for _, f := range []struct{ dst, src *int }{
+		{&u.usage.PromptTokens, &in.PromptTokens},
+		{&u.usage.CompletionTokens, &in.CompletionTokens},
+		{&u.usage.TotalTokens, &in.TotalTokens},
+		{&u.usage.CacheReadInputTokens, &in.CacheReadInputTokens},
+		{&u.usage.CacheCreationInputToken, &in.CacheCreationInputToken},
+	} {
+		if *f.src != 0 {
+			*f.dst = *f.src
+		}
+	}
+}
+
+// response returns the collected usage as a ChatResponse for logUsage, or
+// nil when the stream carried neither usage nor a finish reason.
+func (u *streamUsage) response() *gateway.ChatResponse {
+	if !u.seen && u.finish == nil {
+		return nil
+	}
+	resp := &gateway.ChatResponse{Choices: []gateway.Choice{{FinishReason: u.finish}}}
+	if u.seen {
+		usage := u.usage
+		if usage.TotalTokens < usage.PromptTokens+usage.CompletionTokens {
+			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+		}
+		resp.Usage = &usage
+	}
+	return resp
 }
 
 // ── List Models ──────────────────────────────────────────────────────
