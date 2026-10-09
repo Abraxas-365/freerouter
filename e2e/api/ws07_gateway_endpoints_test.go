@@ -857,9 +857,21 @@ func TestWS07_ChatValidation(t *testing.T) {
 	}
 	t.Run("oversized body → 413", func(t *testing.T) {
 		big := map[string]any{"model": "e2e-ok", "messages": []map[string]string{{"role": "user", "content": strings.Repeat("a", 5<<20)}}}
-		r := gw.Post(t, "/chat/completions", big)
-		if r.Status != http.StatusRequestEntityTooLarge {
-			t.Fatalf("5MB body: %d %s", r.Status, r.Body)
+		j, _ := json.Marshal(big)
+		// The server answers 413 from the headers and closes; without
+		// Expect: 100-continue the client may still be uploading and see a
+		// connection reset instead of the 413.
+		req, _ := http.NewRequest(http.MethodPost, gw.Base+"/chat/completions", bytes.NewReader(j))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+gw.Secret)
+		req.Header.Set("Expect", "100-continue")
+		res, err := gw.HTTP.Do(req)
+		if err != nil {
+			t.Fatalf("5MB body: %v", err)
+		}
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Fatalf("5MB body: %d", res.StatusCode)
 		}
 	})
 	t.Run("just under body limit is accepted", func(t *testing.T) {
