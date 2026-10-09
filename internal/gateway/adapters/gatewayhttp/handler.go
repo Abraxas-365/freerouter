@@ -212,14 +212,22 @@ func (h *Handler) callWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, raw
 	var lastErr error
 	var lastStatus int
 
+	// Cancelled when the client goes away, so an abandoned request stops
+	// waiting on the upstream and frees its concurrency slot.
+	upstreamCtx, stop := clientContext(c)
+	defer stop()
+
 	for attempt, route := range routes {
 		if attempt > 0 {
 			delay := gateway.RetryDelay(attempt - 1)
 			time.Sleep(delay)
 		}
+		if upstreamCtx.Err() != nil {
+			return errx.Wrap(upstreamCtx.Err(), "client closed the connection", errx.TypeExternal)
+		}
 
 		start := time.Now()
-		resp, status, err := h.upstream.Call(c.Context(), route, rawBody)
+		resp, status, err := h.upstream.Call(upstreamCtx, route, rawBody)
 		latency := time.Since(start)
 
 		if err == nil {
@@ -260,7 +268,7 @@ func (h *Handler) callWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, raw
 					// Retry once with the new token.
 					route.Token = cred.OAuth.AccessToken
 					retryStart := time.Now()
-					retryResp, retryStatus, retryErr := h.upstream.Call(c.Context(), route, rawBody)
+					retryResp, retryStatus, retryErr := h.upstream.Call(upstreamCtx, route, rawBody)
 					retryLatency := time.Since(retryStart)
 					if retryErr == nil {
 						h.healthTracker.ReportSuccessWithLatency(route.KeyID, retryLatency)
@@ -314,6 +322,10 @@ func (h *Handler) callWithRetry(c *fiber.Ctx, routes []*gateway.RouteResult, raw
 		}
 
 		// Non-retryable error
+		if upstreamCtx.Err() != nil {
+			// The client left; not the key's fault.
+			break
+		}
 		h.healthTracker.ReportError(route.KeyID, status)
 		h.fireKeyHealthWebhook(route, status)
 		if h.metrics != nil {
