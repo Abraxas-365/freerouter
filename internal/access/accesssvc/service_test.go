@@ -22,6 +22,7 @@ type fakeStore struct {
 	calls       []string
 	createdOrg  string
 	assignments []access.RoleAssignment
+	revokeErr   error
 }
 
 func (f *fakeStore) FindRole(_ context.Context, id string) (access.Role, error) {
@@ -94,6 +95,41 @@ func (f *fakeStore) UpdateUser(_ context.Context, id string, _ access.UpdateUser
 func (f *fakeStore) SuspendUser(_ context.Context, id string) error {
 	f.calls = append(f.calls, "suspend-user:"+id)
 	return nil
+}
+
+func (f *fakeStore) RevokeSessions(_ context.Context, id string) error {
+	f.calls = append(f.calls, "revoke-sessions:"+id)
+	return f.revokeErr
+}
+
+func TestUnassignRevokesSessions(t *testing.T) {
+	ctx := context.Background()
+	in := access.AssignRole{UserID: "u", RoleID: "own"}
+
+	store := &fakeStore{}
+	if err := New(store, ownResource, org).UnassignRole(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"unassign:own", "revoke-sessions:u"}
+	if len(store.calls) != 2 || store.calls[0] != want[0] || store.calls[1] != want[1] {
+		t.Fatalf("calls = %v, want %v (unassign, then sign the user out)", store.calls, want)
+	}
+
+	// The unassignment already happened: a failed sign-out is logged, not
+	// reported, so the admin isn't told a successful removal failed.
+	failing := &fakeStore{revokeErr: errx.External("iamkit down")}
+	if err := New(failing, ownResource, org).UnassignRole(ctx, in); err != nil {
+		t.Fatalf("UnassignRole with failing revoke = %v, want nil", err)
+	}
+
+	// Assigning a role does not sign the user out.
+	assign := &fakeStore{}
+	if err := New(assign, ownResource, org).AssignRole(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	if len(assign.calls) != 1 || assign.calls[0] != "assign:own" {
+		t.Fatalf("assign calls = %v, want only assign", assign.calls)
+	}
 }
 
 func TestForeignRolesAreInvisible(t *testing.T) {

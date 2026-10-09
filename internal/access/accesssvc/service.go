@@ -2,6 +2,7 @@ package accesssvc
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/Abraxas-365/freerouter/internal/access"
 	"github.com/Abraxas-365/freerouter/internal/errx"
@@ -188,7 +189,19 @@ func (s *Service) UnassignRole(ctx context.Context, input access.AssignRole) err
 	if err := s.ownUser(ctx, input.UserID); err != nil {
 		return err
 	}
-	return s.store.UnassignRole(ctx, input, s.organizationID)
+	if err := s.store.UnassignRole(ctx, input, s.organizationID); err != nil {
+		return err
+	}
+	// Issued tokens carry the role's permissions until they expire (up to
+	// 15 min); ending the user's sessions makes the removal immediate, like
+	// suspension. The unassignment already happened, so a failure here is
+	// logged rather than reported: the permission still lapses at expiry.
+	if err := s.store.RevokeSessions(ctx, input.UserID); err != nil {
+		slog.Warn("role unassigned but revoking the user's sessions failed; "+
+			"existing tokens keep the role until they expire",
+			"user_id", input.UserID, "role_id", input.RoleID, "error", err)
+	}
+	return nil
 }
 
 func (s *Service) ListAssignments(ctx context.Context) ([]access.RoleAssignment, error) {

@@ -570,7 +570,8 @@ func TestWS03_Assignments(t *testing.T) {
 		wantStatus(t, ws03Do(t, Bearer(f.URLs.API, tok), http.MethodGet, "/access/roles", nil), 403, "fresh token after unassign")
 	})
 
-	// FINDING WS03-3: a revoked role keeps working until the access token expires (15 min).
+	// WS03-3 (fixed): unassigning a role signs the user out, so the existing
+	// token is rejected (401) instead of keeping the role until expiry.
 	t.Run("unassign revokes permissions of already-issued tokens", func(t *testing.T) {
 		u := newUser(t, "revrole")
 		base := newRole(t, "revrole-base", "freerouter:metrics:read")
@@ -582,7 +583,8 @@ func TestWS03_Assignments(t *testing.T) {
 		wantStatus(t, ws03Do(t, me, http.MethodGet, "/access/roles", nil), 200, "with role")
 		wantStatus(t, unassign(t, u.ID, role.ID), 204, "unassign")
 		Eventually(t, 15*time.Second, func() bool {
-			return ws03Do(t, me, http.MethodGet, "/access/roles", nil).Status == 403
+			s := ws03Do(t, me, http.MethodGet, "/access/roles", nil).Status
+			return s == 401 || s == 403
 		}, "unassigned permission still honoured for the existing token")
 	})
 

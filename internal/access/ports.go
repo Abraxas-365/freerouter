@@ -54,6 +54,9 @@ type Store interface {
 	SuspendUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context) ([]User, error)
 	FindUser(ctx context.Context, id string) (User, error)
+	// RevokeSessions signs the user out everywhere so tokens carrying
+	// permissions they no longer hold stop working.
+	RevokeSessions(ctx context.Context, id string) error
 
 	// Roles
 	CreateRole(ctx context.Context, input CreateRole, resourceID string) (Role, error)

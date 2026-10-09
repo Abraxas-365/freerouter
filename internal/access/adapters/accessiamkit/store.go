@@ -90,6 +90,14 @@ func (s *Store) FindUser(ctx context.Context, id string) (access.User, error) {
 	return toUser(u), nil
 }
 
+func (s *Store) RevokeSessions(ctx context.Context, id string) error {
+	err := s.iam.Do(ctx, func(env apiclient.Environment) error {
+		_, err := env.RevokeUserSessions(ctx, id)
+		return err
+	})
+	return iamx.Translate(err, "revoke user sessions")
+}
+
 func toUser(u apiclient.User) access.User {
 	return access.User{ID: u.ID, Email: u.Email, Name: u.Name, Active: u.Active, HomeOrganizationID: u.HomeOrganizationID}
 }
