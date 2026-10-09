@@ -175,6 +175,8 @@ func (c *Container) initModules() error {
 		CacheEnabled:    c.Config.Cache.Enabled,
 		CacheTTL:        c.Config.Cache.TTL,
 		MetricsEnabled:  c.Config.Metrics.Enabled,
+
+		UpstreamResponseTimeout: c.Config.Gateway.UpstreamResponseTimeout,
 	})
 
 	return nil

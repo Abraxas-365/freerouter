@@ -83,6 +83,8 @@ if [[ ! -f "$ENV" ]]; then
   set_env FREEROUTER_ADMIN_EMAIL admin@e2e.test
   set_env FREEROUTER_ADMIN_PASSWORD "e2e-admin-password-1"
   set_env CACHE_TTL_SECONDS 5
+  # Above e2e-slow's 20s answer, below the hung-upstream test's 35s budget.
+  set_env UPSTREAM_RESPONSE_TIMEOUT_SECONDS 25
   set_env ENCRYPTION_KEY "$(openssl rand -hex 32)"
   set_env OIDC_HMAC_SECRET "$(openssl rand -hex 32)"
   set_env IAMKIT_ENCRYPTION_KEY "$(openssl rand -base64 32)"

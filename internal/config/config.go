@@ -16,6 +16,7 @@ type Config struct {
 	Redis      Redis
 	Cache      Cache
 	Metrics    Metrics
+	Gateway    Gateway
 	IAMKit     IAMKit
 	Webhook    Webhook
 	Encryption Encryption
@@ -61,6 +62,13 @@ type Cache struct {
 // Metrics holds Prometheus metrics configuration.
 type Metrics struct {
 	Enabled bool
+}
+
+// Gateway holds LLM proxy configuration.
+type Gateway struct {
+	// UpstreamResponseTimeout bounds how long one upstream attempt may take
+	// to start answering before the gateway fails over to the next route.
+	UpstreamResponseTimeout time.Duration
 }
 
 // Webhook holds outbound webhook delivery configuration.
@@ -147,6 +155,9 @@ func Load() Config {
 		},
 		Metrics: Metrics{
 			Enabled: envOrBool("METRICS_ENABLED", true),
+		},
+		Gateway: Gateway{
+			UpstreamResponseTimeout: time.Duration(envOrInt("UPSTREAM_RESPONSE_TIMEOUT_SECONDS", 120)) * time.Second,
 		},
 		IAMKit: IAMKit{
 			BaseURL:        envOr("IAMKIT_BASE_URL", "http://localhost:8080"),

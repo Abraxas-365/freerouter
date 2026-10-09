@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -19,13 +21,42 @@ type Upstream struct {
 	client *http.Client
 }
 
-// NewUpstream creates an upstream client with a 5-minute timeout.
-func NewUpstream() *Upstream {
+// DefaultResponseTimeout bounds how long an upstream may take to start
+// answering (response headers) before the attempt fails over to the next
+// route. Non-streaming providers send headers only once generation ends,
+// so this must cover the longest expected completion.
+const DefaultResponseTimeout = 120 * time.Second
+
+// NewUpstream creates an upstream client. responseTimeout bounds the wait
+// for each attempt's response headers (<= 0 uses DefaultResponseTimeout);
+// a stream that has started may run for up to 5 minutes in total.
+func NewUpstream(responseTimeout time.Duration) *Upstream {
+	if responseTimeout <= 0 {
+		responseTimeout = DefaultResponseTimeout
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = responseTimeout
 	return &Upstream{
 		client: &http.Client{
-			Timeout: 5 * time.Minute,
+			Transport: transport,
+			Timeout:   5 * time.Minute,
 		},
 	}
+}
+
+// transportFailure maps an error from client.Do (no HTTP response at all:
+// connection refused, DNS, reset, timeout) to a gateway status so callers
+// fail over like any other upstream outage: 504 for a timeout, 502
+// otherwise. A request cancelled by the caller reports 0 so it is not retried.
+func transportFailure(ctx context.Context, err error) (int, error) {
+	if ctx.Err() != nil {
+		return 0, errx.Wrap(err, "upstream request cancelled", errx.TypeExternal)
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return http.StatusGatewayTimeout, errx.Wrap(err, "upstream did not respond in time", errx.TypeExternal)
+	}
+	return http.StatusBadGateway, errx.Wrap(err, "upstream unreachable", errx.TypeExternal)
 }
 
 // StreamCallback is called for each SSE chunk received from the upstream provider.
@@ -47,7 +78,8 @@ func (u *Upstream) Call(ctx context.Context, route *RouteResult, body []byte) (*
 
 	resp, err := u.client.Do(req)
 	if err != nil {
-		return nil, 0, errx.Wrap(err, "upstream request failed", errx.TypeInternal)
+		status, err := transportFailure(ctx, err)
+		return nil, status, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -88,7 +120,7 @@ func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, 
 
 	resp, err := u.client.Do(req)
 	if err != nil {
-		return 0, errx.Wrap(err, "upstream streaming request failed", errx.TypeInternal)
+		return transportFailure(ctx, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -155,7 +187,8 @@ func (u *Upstream) CallRaw(ctx context.Context, route *RouteResult, body []byte)
 
 	resp, err := u.client.Do(req)
 	if err != nil {
-		return nil, 0, errx.Wrap(err, "upstream request failed", errx.TypeInternal)
+		status, err := transportFailure(ctx, err)
+		return nil, status, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -188,7 +221,8 @@ func (u *Upstream) CallRawWithEndpoint(ctx context.Context, route *RouteResult, 
 
 	resp, err := u.client.Do(req)
 	if err != nil {
-		return nil, 0, errx.Wrap(err, "upstream request failed", errx.TypeInternal)
+		status, err := transportFailure(ctx, err)
+		return nil, status, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 

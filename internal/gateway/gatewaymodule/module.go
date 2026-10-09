@@ -33,6 +33,9 @@ type Deps struct {
 	CacheEnabled    bool
 	CacheTTL        time.Duration
 	MetricsEnabled  bool
+	// UpstreamResponseTimeout bounds each attempt's wait for response
+	// headers before failing over (0 = gateway.DefaultResponseTimeout).
+	UpstreamResponseTimeout time.Duration
 }
 
 // Module exposes the gateway module's public components.
@@ -48,7 +51,7 @@ type Module struct {
 // New wires the gateway module.
 func New(deps Deps) Module {
 	healthTracker := gateway.NewKeyHealthTracker()
-	upstream := gateway.NewUpstream()
+	upstream := gateway.NewUpstream(deps.UpstreamResponseTimeout)
 
 	router := gateway.NewRouter(
 		deps.Models,
