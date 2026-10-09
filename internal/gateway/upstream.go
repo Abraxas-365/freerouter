@@ -149,28 +149,31 @@ func (u *Upstream) Stream(ctx context.Context, route *RouteResult, body []byte, 
 		if tErr != nil {
 			continue
 		}
-		if done {
-			if err := onChunk([]byte("data: [DONE]\n\n")); err != nil {
+		// A translator may report done on a chunk that still carries content
+		// (Gemini puts the last text, finish_reason and usage there): forward
+		// it before the terminator.
+		if transformed != nil && string(transformed) != streamDone {
+			if err := onChunk([]byte("data: " + string(transformed) + "\n\n")); err != nil {
 				return resp.StatusCode, nil
 			}
+		}
+		if done {
 			break
-		}
-		if transformed == nil {
-			continue
-		}
-
-		sseChunk := fmt.Sprintf("data: %s\n\n", string(transformed))
-		if err := onChunk([]byte(sseChunk)); err != nil {
-			return resp.StatusCode, nil
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return resp.StatusCode, errx.Wrap(err, "error reading upstream stream", errx.TypeInternal)
+		return resp.StatusCode, errx.Wrap(err, "error reading upstream stream", errx.TypeExternal)
 	}
 
+	// Every stream the upstream finished cleanly ends with [DONE], whether
+	// or not the provider has an explicit terminator (Cohere does not).
+	_ = onChunk([]byte("data: " + streamDone + "\n\n"))
 	return resp.StatusCode, nil
 }
+
+// streamDone is the OpenAI SSE stream terminator.
+const streamDone = "[DONE]"
 
 // CallRaw makes a non-streaming request and returns the raw response body.
 // Used for passthrough endpoints (embeddings, images, speech, moderation, rerank).
