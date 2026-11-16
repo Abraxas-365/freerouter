@@ -824,8 +824,16 @@ func TestWS03_LargeLists(t *testing.T) {
 			t.Fatalf("bulk user %s missing from list of %d (pagination?)", id, len(users))
 		}
 	}
-	if len(users) < nUsers+6 {
-		t.Fatalf("list has %d users, want >= %d", len(users), nUsers+6)
+	// Seeded user personas homed in FreeRouter's organization (foreign
+	// users are, correctly, not listed — WS03-1).
+	ownUsers := 0
+	for _, p := range f.Personas {
+		if p.Kind == "user" && (p.OrganizationID == "" || p.OrganizationID == f.IAMKit.OrganizationID) {
+			ownUsers++
+		}
+	}
+	if len(users) < nUsers+ownUsers {
+		t.Fatalf("list has %d users, want >= %d", len(users), nUsers+ownUsers)
 	}
 	roles := listRoles(t)
 	for _, id := range roleIDs {

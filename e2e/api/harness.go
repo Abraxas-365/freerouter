@@ -48,13 +48,14 @@ type Fixtures struct {
 }
 
 type Persona struct {
-	Kind     string `json:"kind"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Secret   string `json:"secret"`
-	UserID   string `json:"user_id"`
-	ID       string `json:"id"`
-	Note     string `json:"note"`
+	Kind           string `json:"kind"`
+	Email          string `json:"email"`
+	Password       string `json:"password"`
+	Secret         string `json:"secret"`
+	UserID         string `json:"user_id"`
+	ID             string `json:"id"`
+	OrganizationID string `json:"organization_id"` // set for users homed outside FreeRouter's org
+	Note           string `json:"note"`
 }
 
 var (
