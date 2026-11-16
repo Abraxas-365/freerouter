@@ -108,4 +108,15 @@ func TestStore_Expiry(t *testing.T) {
 	if _, err := store.Create(ctx, apikey.CreateServiceAccount{Name: "bad", ExpiresIn: "30m"}, "", ""); !isType(err, errx.TypeValidation) {
 		t.Fatalf("30m: err = %v, want VALIDATION", err)
 	}
+
+	// Never past the creating key's own expiry, even by a race.
+	callerEnd := time.Now().Add(time.Hour).Truncate(time.Microsecond).UTC()
+	child, err := store.Create(ctx, apikey.CreateServiceAccount{Name: "child", Permissions: []string{server.PermGatewayInvoke},
+		ExpiresIn: "1h", CallerExpiresAt: &callerEnd}, "", "")
+	if err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+	if child.ExpiresAt.After(callerEnd) {
+		t.Fatalf("child expires %v, after its creator %v", child.ExpiresAt, callerEnd)
+	}
 }

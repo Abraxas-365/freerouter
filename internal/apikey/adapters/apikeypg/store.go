@@ -54,6 +54,12 @@ func (s *Store) Create(ctx context.Context, input apikey.CreateServiceAccount, _
 	if err != nil {
 		return apikey.ServiceAccountCredential{}, err
 	}
+	// AuthorizeGrant checked against its own clock; clamp so the key never
+	// outlives its creator by the time between the two.
+	if c := input.CallerExpiresAt; c != nil && expiresAt != nil && expiresAt.After(*c) {
+		at := c.UTC()
+		expiresAt = &at
+	}
 	secret, err := newSecret()
 	if err != nil {
 		return apikey.ServiceAccountCredential{}, errx.Wrap(err, "failed to generate gateway key", errx.TypeInternal)
