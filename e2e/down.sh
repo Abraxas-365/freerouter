@@ -13,7 +13,7 @@ for p in ${E2E_WEB_PORT:-25173} ${E2E_SERVER_PORT:-23000} ${E2E_FAKELLM_PORT:-29
   lsof -nP -tiTCP:"$p" -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
 done
 
-COMPOSE_PROJECT_NAME=frv2e2e \
+COMPOSE_PROJECT_NAME=frv2e2e COMPOSE_PROFILES=iam \
 COMPOSE_FILE="$ROOT/docker-compose.yml:$ROOT/e2e/docker-compose.e2e.yml" \
 OIDC_HMAC_SECRET=x docker compose down -v --remove-orphans 2>/dev/null || true
 

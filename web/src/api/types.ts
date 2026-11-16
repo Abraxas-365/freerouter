@@ -556,6 +556,8 @@ export interface ServiceAccount {
   resource_id: string
   permissions: string[]
   expires_in?: string
+  /** Set for keys FreeRouter issues itself (none/token modes). */
+  expires_at?: string
 }
 
 /** An IAMKit application a service account can belong to (i.e. "which service"). */

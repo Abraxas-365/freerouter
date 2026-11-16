@@ -184,3 +184,15 @@ func ParseRetentionConfigID(raw string) (RetentionConfigID, error) {
 func MustParseRetentionConfigID(raw string) RetentionConfigID {
 	return MustParseID[retentionConfigTag](raw)
 }
+
+// ── GatewayKey ──────────────────────────────────────────────────────
+
+type gatewayKeyTag struct{}
+
+// GatewayKeyID identifies a gateway key FreeRouter issues itself (none and
+// token auth modes; iam mode uses IAMKit service accounts instead).
+type GatewayKeyID = ID[gatewayKeyTag]
+
+func NewGatewayKeyID() GatewayKeyID                      { return NewID[gatewayKeyTag]() }
+func ParseGatewayKeyID(raw string) (GatewayKeyID, error) { return ParseID[gatewayKeyTag](raw) }
+func MustParseGatewayKeyID(raw string) GatewayKeyID      { return MustParseID[gatewayKeyTag](raw) }

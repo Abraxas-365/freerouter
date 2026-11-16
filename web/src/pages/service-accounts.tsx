@@ -7,6 +7,8 @@ import { useApi } from "@/api"
 import type { ServiceAccount, CreateServiceAccountRequest, ServiceAccountCredential, Application } from "@/api/types"
 import { VALID_PERMISSIONS, DEFAULT_PERMISSIONS } from "@/api/types"
 import { PageHeader, EmptyState, ConfirmDialog } from "@/components"
+import { useAuth } from "@/hooks/use-auth"
+import { usePermissions } from "@/hooks/use-permissions"
 import { MetricCardSkeleton } from "@/components/feedback/skeletons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -107,7 +109,7 @@ export default function ServiceAccountsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="font-mono text-xs">Name</TableHead>
-                  <TableHead className="font-mono text-xs">Service</TableHead>
+                  {applications.length > 0 && <TableHead className="font-mono text-xs">Service</TableHead>}
                   <TableHead className="font-mono text-xs">Permissions</TableHead>
                   <TableHead className="font-mono text-xs">Expires In</TableHead>
                   <TableHead className="font-mono text-xs w-8" />
@@ -117,9 +119,11 @@ export default function ServiceAccountsPage() {
                 {accounts.map((a) => (
                   <TableRow key={a.id}>
                     <TableCell className="font-medium">{a.name}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {applications.find((app) => app.id === a.application_id)?.name || a.application_id}
-                    </TableCell>
+                    {applications.length > 0 && (
+                      <TableCell className="text-xs text-muted-foreground">
+                        {applications.find((app) => app.id === a.application_id)?.name || a.application_id}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {(a.permissions ?? []).map((p) => (
@@ -128,7 +132,7 @@ export default function ServiceAccountsPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {a.expires_in || "never"}
+                      {a.expires_at ? new Date(a.expires_at).toLocaleString() : a.expires_in || "never"}
                     </TableCell>
                     <TableCell>
                       <Button
@@ -183,9 +187,9 @@ function SecretBanner({ credential, onDismiss }: { credential: ServiceAccountCre
     <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-4">
       <p className="text-sm font-medium mb-1">Service Account Created</p>
       <p className="text-xs text-muted-foreground mb-2">
-        Copy this secret now — it won't be shown again. Use it with{" "}
-        <code className="text-[10px] bg-muted px-1 rounded">POST /identity/v1/machine-token</code>{" "}
-        to exchange for a short-lived JWT.
+        Copy this secret now — it won't be shown again. Send it as{" "}
+        <code className="text-[10px] bg-muted px-1 rounded">Authorization: Bearer &lt;secret&gt;</code>{" "}
+        (or <code className="text-[10px] bg-muted px-1 rounded">X-Api-Key</code>) to the gateway.
       </p>
       <div className="flex items-center gap-2">
         <code className="flex-1 text-xs font-mono bg-muted p-2 rounded break-all select-all">
@@ -196,7 +200,9 @@ function SecretBanner({ credential, onDismiss }: { credential: ServiceAccountCre
         </Button>
       </div>
       <p className="text-xs text-muted-foreground mt-2">
-        Expires: {new Date(credential.expires_at).toLocaleString()}
+        Expires: {!credential.expires_at || credential.expires_at.startsWith("0001-")
+          ? "never"
+          : new Date(credential.expires_at).toLocaleString()}
       </p>
       <Button size="sm" variant="outline" className="mt-2" onClick={onDismiss}>
         Dismiss
@@ -222,6 +228,11 @@ function CreateDialog({
   const [applicationId, setApplicationId] = useState("")
   const [expiresIn, setExpiresIn] = useState("")
   const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set(DEFAULT_PERMISSIONS))
+  // Only what the caller holds can be granted (the server enforces it), and
+  // users:*/roles:* mean nothing without IAMKit.
+  const { mode } = useAuth()
+  const held = usePermissions()
+  const grantable = VALID_PERMISSIONS.filter((p) => held.has(p) && (mode === "iam" || !/:(users|roles):/.test(p)))
 
   useEffect(() => {
     if (open) {
@@ -292,7 +303,7 @@ function CreateDialog({
           <div className="space-y-2">
             <Label>Permissions</Label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 max-h-48 overflow-y-auto border rounded-md p-2">
-              {VALID_PERMISSIONS.map((p) => (
+              {grantable.map((p) => (
                 <label
                   key={p}
                   className="flex items-start gap-2 min-w-0 cursor-pointer text-xs font-mono hover:bg-muted/50 rounded px-1 py-1"
@@ -320,7 +331,7 @@ function CreateDialog({
               placeholder="e.g. 8760h (1 year), 720h (30 days)"
             />
             <p className="text-xs text-muted-foreground">
-              Go duration format. Leave empty for the IAMKit default.
+              Go duration between 1h and 8760h, or <code className="text-[10px] bg-muted px-1 rounded">never</code>. Leave empty for 24h.
             </p>
           </div>
         </div>

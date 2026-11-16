@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 // Config holds all application configuration loaded from environment variables.
 type Config struct {
 	Server     Server
+	Auth       Auth
 	Database   Database
 	Redis      Redis
 	Cache      Cache
@@ -25,7 +27,100 @@ type Config struct {
 // Server holds HTTP server configuration.
 type Server struct {
 	Port string
+	Host string // SERVER_HOST: listen address; "" = all interfaces (none mode: 127.0.0.1)
 	Env  string // "development", "staging", "production"
+	// ConsoleOrigins (FREEROUTER_CONSOLE_ORIGINS) are the extra browser
+	// origins none mode trusts to drive the API besides its own, e.g. the
+	// console on Vite's port calling :3000 directly. No default: any other
+	// local app on a listed origin holds the owner's access.
+	ConsoleOrigins []string
+	// TrustedProxies (TRUSTED_PROXIES: IPs/CIDRs) are the reverse proxies
+	// whose ProxyHeader (PROXY_HEADER, default X-Forwarded-For) gives the
+	// client IP; token mode throttles admin-token guesses per client IP.
+	TrustedProxies []string
+	ProxyHeader    string
+}
+
+// Addr is the listen address (an IPv6 host may be given bracketed or not).
+func (s Server) Addr() string { return net.JoinHostPort(strings.Trim(s.Host, "[]"), s.Port) }
+
+// Network is the listener network: tcp4 unless the host is an IPv6
+// address (Fiber listens on tcp4 by default).
+func (s Server) Network() string {
+	if ip := net.ParseIP(strings.Trim(s.Host, "[]")); ip != nil && ip.To4() == nil {
+		return "tcp6"
+	}
+	return "tcp4"
+}
+
+// AuthMode is how callers authenticate (FREEROUTER_AUTH).
+type AuthMode string
+
+const (
+	// AuthNone: no credentials, every local caller is the owner; loopback only.
+	AuthNone AuthMode = "none"
+	// AuthToken: a static admin token plus gateway keys issued by FreeRouter.
+	AuthToken AuthMode = "token"
+	// AuthIAM: IAMKit users, roles and service accounts.
+	AuthIAM AuthMode = "iam"
+)
+
+// Auth holds the auth mode and its local credentials.
+type Auth struct {
+	Mode       AuthMode
+	AdminToken string // FREEROUTER_ADMIN_TOKEN (token mode)
+}
+
+// minAdminToken is the shortest admin token accepted in token mode: 32
+// characters, e.g. `openssl rand -hex 16` (128 bits) — the token is the
+// only credential and also keys the session cookie's HMAC.
+const minAdminToken = 32
+
+// Validate checks the configuration of the selected auth mode; only iam
+// mode needs (and checks) the IAMKit settings.
+func (c Config) Validate() error {
+	switch c.Auth.Mode {
+	case AuthNone:
+		if !loopback(c.Server.Host) {
+			return errors.New("FREEROUTER_AUTH=none only listens on loopback (SERVER_HOST=127.0.0.1, ::1 or localhost); " +
+				"use FREEROUTER_AUTH=token to listen on " + c.Server.Host)
+		}
+	case AuthToken:
+		if len(c.Auth.AdminToken) < minAdminToken {
+			return fmt.Errorf("FREEROUTER_ADMIN_TOKEN is required in token mode (at least %d characters; openssl rand -hex 32)", minAdminToken)
+		}
+	case AuthIAM:
+		return c.IAMKit.Validate()
+	default:
+		return errors.New("FREEROUTER_AUTH must be none, token or iam")
+	}
+	return nil
+}
+
+func loopback(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
+// defaultAuthMode keeps existing IAMKit deployments working when
+// FREEROUTER_AUTH is unset: iam when IAMKit boundaries are configured,
+// token otherwise.
+func defaultAuthMode() AuthMode {
+	if os.Getenv("IAMKIT_ENVIRONMENT_ID") != "" {
+		return AuthIAM
+	}
+	return AuthToken
+}
+
+// defaultHost: none mode listens on loopback unless told otherwise.
+func defaultHost(mode AuthMode) string {
+	if mode == AuthNone {
+		return "127.0.0.1"
+	}
+	return ""
 }
 
 // Database holds PostgreSQL connection configuration.
@@ -84,6 +179,7 @@ type Webhook struct {
 // taken from the token or the request.
 type IAMKit struct {
 	BaseURL        string // e.g. "http://localhost:8080"
+	PublicURL      string // IAMKit URL the browser signs in against (IAMKIT_PUBLIC_URL); "" = the console's build-time VITE_IAMKIT_URL
 	ServiceSecret  string // ik_svc_... backend service account on the environment's IAM resource (optional)
 	EnvironmentID  string // IAMKit environment UUID
 	ApplicationID  string // IAMKit application UUID
@@ -131,10 +227,19 @@ type Encryption struct {
 
 // Load reads configuration from environment variables with sensible defaults.
 func Load() Config {
+	mode := AuthMode(envOr("FREEROUTER_AUTH", string(defaultAuthMode())))
 	return Config{
 		Server: Server{
-			Port: envOr("SERVER_PORT", "3000"),
-			Env:  envOr("APP_ENV", "development"),
+			Port:           envOr("SERVER_PORT", "3000"),
+			Host:           envOr("SERVER_HOST", defaultHost(mode)),
+			Env:            envOr("APP_ENV", "development"),
+			ConsoleOrigins: csv(os.Getenv("FREEROUTER_CONSOLE_ORIGINS")),
+			TrustedProxies: csv(os.Getenv("TRUSTED_PROXIES")),
+			ProxyHeader:    envOr("PROXY_HEADER", "X-Forwarded-For"),
+		},
+		Auth: Auth{
+			Mode:       mode,
+			AdminToken: strings.TrimSpace(os.Getenv("FREEROUTER_ADMIN_TOKEN")),
 		},
 		Database: Database{
 			Host:     envOr("DB_HOST", "localhost"),
@@ -160,7 +265,10 @@ func Load() Config {
 			UpstreamResponseTimeout: time.Duration(envOrInt("UPSTREAM_RESPONSE_TIMEOUT_SECONDS", 120)) * time.Second,
 		},
 		IAMKit: IAMKit{
-			BaseURL:        envOr("IAMKIT_BASE_URL", "http://localhost:8080"),
+			BaseURL: envOr("IAMKIT_BASE_URL", "http://localhost:8080"),
+			// No BaseURL default: that is the server's address for IAMKit (in
+			// Docker an internal host), not necessarily the browser's.
+			PublicURL:      os.Getenv("IAMKIT_PUBLIC_URL"),
 			ServiceSecret:  envOr("IAMKIT_SERVICE_SECRET", ""),
 			EnvironmentID:  envOr("IAMKIT_ENVIRONMENT_ID", ""),
 			ApplicationID:  envOr("IAMKIT_APPLICATION_ID", ""),
@@ -183,6 +291,17 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// csv splits a comma-separated list, dropping blanks.
+func csv(s string) []string {
+	var out []string
+	for _, v := range strings.Split(s, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func envOrInt(key string, fallback int) int {

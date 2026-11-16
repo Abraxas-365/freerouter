@@ -1,11 +1,11 @@
 import { refresh as iamkitRefresh } from "@/lib/iamkit"
-
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
+import { API_BASE, runtimeConfig } from "@/lib/runtime-config"
 
 let refreshInFlight: Promise<string | null> | null = null
 
 /** Attempts to exchange the stored refresh token for a new access token. Coalesces concurrent callers. */
 async function tryRefresh(): Promise<string | null> {
+  if (runtimeConfig().auth !== "iam") return null // token: re-enter the admin token; none: nothing to refresh
   if (refreshInFlight) return refreshInFlight
   refreshInFlight = (async () => {
     const refreshToken = localStorage.getItem("refresh_token")
@@ -14,6 +14,7 @@ async function tryRefresh(): Promise<string | null> {
       const tokens = await iamkitRefresh(refreshToken)
       localStorage.setItem("access_token", tokens.access_token)
       if (tokens.refresh_token) localStorage.setItem("refresh_token", tokens.refresh_token)
+      window.dispatchEvent(new Event("auth-refreshed"))
       return tokens.access_token
     } catch {
       return null
@@ -33,7 +34,10 @@ function clearSession() {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, isRetry = false): Promise<T> {
-  const token = localStorage.getItem("access_token")
+  // iam: the IAMKit bearer; token: the HttpOnly session cookie (same origin
+  // only — VITE_API_URL on another origin doesn't work in token mode);
+  // none: nothing.
+  const token = runtimeConfig().auth === "iam" ? localStorage.getItem("access_token") : null
   const headers: Record<string, string> = { "Content-Type": "application/json" }
   if (token) headers["Authorization"] = `Bearer ${token}`
 
@@ -41,6 +45,7 @@ async function request<T>(method: string, path: string, body?: unknown, isRetry 
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    credentials: "same-origin",
   })
 
   if (res.status === 401) {
@@ -53,8 +58,9 @@ async function request<T>(method: string, path: string, body?: unknown, isRetry 
   }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error(err.message || res.statusText)
+    const err = await res.json().catch(() => null)
+    // errx: {message}; auth middleware (every mode): {error:{message}}
+    throw new Error(err?.message || err?.error?.message || res.statusText)
   }
 
   if (res.status === 204) return undefined as T

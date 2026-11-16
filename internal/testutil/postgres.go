@@ -25,6 +25,14 @@ import (
 // automatically via t.Cleanup.
 func PostgresDB(t *testing.T) *sqlx.DB {
 	t.Helper()
+	db, _ := PostgresDSN(t)
+	return db
+}
+
+// PostgresDSN is PostgresDB that also returns the connection string, for
+// tests that boot code opening its own connection (bootstrap).
+func PostgresDSN(t *testing.T) (*sqlx.DB, string) {
+	t.Helper()
 	ctx := context.Background()
 
 	container, err := tcpostgres.Run(ctx, "postgres:16-alpine",
@@ -60,7 +68,7 @@ func PostgresDB(t *testing.T) *sqlx.DB {
 
 	applyMigrations(t, db)
 
-	return db
+	return db, dsn
 }
 
 // applyMigrations runs every migrations/*.up.sql file (repo root, sibling

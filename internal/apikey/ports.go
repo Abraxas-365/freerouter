@@ -14,12 +14,20 @@ type Queries interface {
 	ListApplications(ctx context.Context) ([]Application, error)
 }
 
-// Store abstracts the IAMKit service-account backend.
-// There is no local database — IAMKit owns the storage.
+// Store abstracts the service-account backend: IAMKit (iam mode) or
+// FreeRouter's own gateway keys (none/token modes).
 type Store interface {
 	Create(ctx context.Context, input CreateServiceAccount, applicationID, resourceID string) (ServiceAccountCredential, error)
 	List(ctx context.Context) ([]ServiceAccount, error)
 	Find(ctx context.Context, id string) (ServiceAccount, error)
 	ListApplications(ctx context.Context) ([]Application, error)
 	Revoke(ctx context.Context, id string) error
+}
+
+// LocalStore is the Store of keys FreeRouter issues itself: it also
+// resolves a presented secret to its live key (not revoked, not expired);
+// anything else is errx.Unauthorized.
+type LocalStore interface {
+	Store
+	Resolve(ctx context.Context, secret string) (ServiceAccount, error)
 }

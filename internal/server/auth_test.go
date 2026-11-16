@@ -76,12 +76,12 @@ func TestNormalizeAPIKeyHeader_BlankXAPIKeyIgnored(t *testing.T) {
 // ── Mock IAMKit server for ik_svc_ token exchange tests ──
 
 // fakeIAMKit spins up a test HTTP server that simulates the two IAMKit
-// endpoints used by AuthMiddleware: /identity/v1/machine-token and
+// endpoints used by the IAM authenticator: /identity/v1/machine-token and
 // /identity/v1/introspect.
 type fakeIAMKit struct {
-	server             *httptest.Server
-	machineTokenCalls  atomic.Int64
-	introspectCalls    atomic.Int64
+	server            *httptest.Server
+	machineTokenCalls atomic.Int64
+	introspectCalls   atomic.Int64
 
 	// Configuration for the mock responses.
 	machineTokenJWT string
@@ -108,14 +108,14 @@ func newFakeIAMKit() *fakeIAMKit {
 	f.claims = map[string]any{
 		"active": true,
 		"claims": map[string]any{
-			"sub":              "svc-account-123",
-			"iss":              f.issuer,
-			"aud":              []string{f.audience},
-			"environment_id":   f.env,
-			"application_id":   f.app,
-			"resource_id":      f.resource,
-			"purpose":          "machine",
-			"permissions":      []string{"freerouter:gateway:invoke"},
+			"sub":            "svc-account-123",
+			"iss":            f.issuer,
+			"aud":            []string{f.audience},
+			"environment_id": f.env,
+			"application_id": f.app,
+			"resource_id":    f.resource,
+			"purpose":        "machine",
+			"permissions":    []string{"freerouter:gateway:invoke"},
 		},
 	}
 
@@ -184,13 +184,13 @@ func TestAuthMiddleware_ServiceAccountTokenExchanged(t *testing.T) {
 	cfg := fake.config()
 
 	app := fiber.New()
-	app.Use(AuthMiddleware(auth, cfg))
+	app.Use(IAM{Client: auth, Config: cfg}.Authenticate())
 	app.Get("/test", func(c *fiber.Ctx) error {
-		claims := Claims(c)
-		if claims == nil {
+		p, ok := Caller(c)
+		if !ok {
 			return c.SendStatus(500)
 		}
-		return c.JSON(fiber.Map{"sub": claims.Subject})
+		return c.JSON(fiber.Map{"sub": p.Subject})
 	})
 
 	// Send ik_svc_ token directly as Bearer.
@@ -224,7 +224,7 @@ func TestAuthMiddleware_ServiceAccountTokenCached(t *testing.T) {
 	cfg := fake.config()
 
 	app := fiber.New()
-	app.Use(AuthMiddleware(auth, cfg))
+	app.Use(IAM{Client: auth, Config: cfg}.Authenticate())
 	app.Get("/test", func(c *fiber.Ctx) error {
 		return c.SendStatus(204)
 	})
@@ -264,7 +264,7 @@ func TestAuthMiddleware_RegularJWT_NoExchange(t *testing.T) {
 	cfg := fake.config()
 
 	app := fiber.New()
-	app.Use(AuthMiddleware(auth, cfg))
+	app.Use(IAM{Client: auth, Config: cfg}.Authenticate())
 	app.Get("/test", func(c *fiber.Ctx) error {
 		return c.SendStatus(204)
 	})
@@ -291,7 +291,7 @@ func TestAuthMiddleware_ServiceAccountViaXAPIKey(t *testing.T) {
 	cfg := fake.config()
 
 	app := fiber.New()
-	app.Use(AuthMiddleware(auth, cfg))
+	app.Use(IAM{Client: auth, Config: cfg}.Authenticate())
 	app.Get("/test", func(c *fiber.Ctx) error {
 		return c.SendStatus(204)
 	})
@@ -329,7 +329,7 @@ func TestAuthMiddleware_InvalidServiceAccount_Returns401(t *testing.T) {
 	cfg := fake.config()
 
 	app := fiber.New()
-	app.Use(AuthMiddleware(auth, cfg))
+	app.Use(IAM{Client: auth, Config: cfg}.Authenticate())
 	app.Get("/test", func(c *fiber.Ctx) error {
 		return c.SendStatus(204)
 	})

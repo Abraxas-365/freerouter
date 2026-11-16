@@ -81,6 +81,9 @@ func ws12BaseEnv(t *testing.T) map[string]string {
 			env[k] = v
 		}
 	}
+	// Startup assertions below are about the IAMKit mode; pin it so unsetting
+	// IAMKIT_ENVIRONMENT_ID doesn't fall back to FREEROUTER_AUTH=token.
+	env["FREEROUTER_AUTH"] = "iam"
 	return env
 }
 

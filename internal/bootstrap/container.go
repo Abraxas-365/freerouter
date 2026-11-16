@@ -33,8 +33,8 @@ type Container struct {
 	Config config.Config
 	DB     *sqlx.DB
 	Redis  *redis.Client
-	Auth   *authclient.Client
-	IAM    *iamx.Client // nil when IAMKIT_SERVICE_SECRET is not set
+	Auth   server.Authenticator // the run mode's (FREEROUTER_AUTH)
+	IAM    *iamx.Client         // iam mode with IAMKIT_SERVICE_SECRET only
 	Server *server.Server
 
 	// Modules
@@ -46,15 +46,15 @@ type Container struct {
 	RoutingConfig routingconfigmodule.Module
 	Guardrail     guardrailmodule.Module
 	Webhook       webhookmodule.Module
-	APIKey        *apikeymodule.Module // nil when IAMKIT_SERVICE_SECRET is not set
-	Access        *accessmodule.Module // nil when IAMKIT_SERVICE_SECRET is not set
+	APIKey        *apikeymodule.Module // local keys (none/token); iam mode only with IAMKIT_SERVICE_SECRET
+	Access        *accessmodule.Module // iam mode with IAMKIT_SERVICE_SECRET only
 }
 
 // New creates and wires the entire application.
 func New(cfg config.Config) (*Container, error) {
 	c := &Container{Config: cfg}
 
-	if err := cfg.IAMKit.Validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 	if err := c.initInfrastructure(); err != nil {
@@ -64,6 +64,7 @@ func New(cfg config.Config) (*Container, error) {
 	if err := c.initModules(); err != nil {
 		return nil, fmt.Errorf("modules: %w", err)
 	}
+	c.initAuth()
 	c.initServer()
 
 	return c, nil
@@ -89,17 +90,16 @@ func (c *Container) initInfrastructure() error {
 	return nil
 }
 
+// iamHTTP is the one HTTP client for all IAMKit calls: bounded, so IAMKit
+// being slow cannot pin request goroutines.
+var iamHTTP = &http.Client{Timeout: 10 * time.Second}
+
 func (c *Container) initClients() {
-	// One HTTP client for all IAMKit calls: bounded, so IAMKit being slow
-	// cannot pin request goroutines.
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-
-	// IAMKit auth client (token validation, introspection)
-	c.Auth = authclient.New(c.Config.IAMKit.BaseURL, authclient.WithHTTPClient(httpClient))
-
-	// IAMKit scoped API client: FreeRouter's backend service account on the
-	// environment's IAM resource (users, roles, service accounts).
-	if c.Config.IAMKit.ServiceSecret != "" {
+	// IAMKit scoped API client (iam mode): FreeRouter's backend service
+	// account on the environment's IAM resource (users, roles, service
+	// accounts). The other modes never talk to IAMKit.
+	httpClient := iamHTTP
+	if c.Config.Auth.Mode == config.AuthIAM && c.Config.IAMKit.ServiceSecret != "" {
 		c.IAM = iamx.New(c.Config.IAMKit.BaseURL, c.Config.IAMKit.EnvironmentID, c.Config.IAMKit.ServiceSecret, httpClient)
 	}
 }
@@ -141,8 +141,13 @@ func (c *Container) initModules() error {
 		AllowPrivateTargets: c.Config.Webhook.AllowPrivate,
 	})
 
-	// API key + access modules (require the IAMKit backend service account)
-	if c.IAM != nil {
+	// API keys: FreeRouter's own gateway keys without IAMKit; in iam mode
+	// IAMKit service accounts, which (like access) need the backend
+	// service account.
+	if c.Config.Auth.Mode != config.AuthIAM {
+		m := apikeymodule.NewLocal(apikeymodule.LocalDeps{DB: c.DB})
+		c.APIKey = &m
+	} else if c.IAM != nil {
 		m := apikeymodule.New(apikeymodule.Deps{
 			IAMKit:        c.IAM,
 			ApplicationID: c.Config.IAMKit.ApplicationID,
@@ -183,20 +188,31 @@ func (c *Container) initModules() error {
 }
 
 func (c *Container) initServer() {
-	srv := server.New(c.Config.Server.Port)
+	srv := server.New(c.Config.Server.Addr(), server.WithNetwork(c.Config.Server.Network()),
+		server.WithTrustedProxies(c.Config.Server.TrustedProxies, c.Config.Server.ProxyHeader))
 	app := srv.App()
 
 	// Common middleware
 	server.CommonMiddleware(app)
 
-	// One authenticator for every protected group: it owns the
-	// service-account token cache and its sweeper.
-	authenticate := server.AuthMiddleware(c.Auth, c.Config.IAMKit)
+	// One authenticator for every protected group (in iam mode it owns
+	// the service-account token cache and its sweeper).
+	authenticate := c.Auth.Authenticate()
 
 	// Health check (public)
 	app.Get("/health", func(ctx *fiber.Ctx) error {
 		return ctx.JSON(fiber.Map{"status": "ok"})
 	})
+
+	// Run mode for the console (public: reveals no secrets).
+	app.Get("/api/v1/config", c.publicConfig)
+
+	// Console session (none/token modes; iam signs in against IAMKit).
+	if session := c.Auth.Session(); session.Current != nil {
+		app.Get("/api/v1/session", session.Current)
+		app.Post("/api/v1/session", session.Login)
+		app.Delete("/api/v1/session", session.Logout)
+	}
 
 	// Prometheus metrics (auth-protected)
 	if c.Gateway.Metrics != nil {
@@ -260,6 +276,52 @@ func (c *Container) initServer() {
 	c.Webhook.StartWorker()
 	c.ProviderKey.RefreshService.StartWorker()
 	c.Usage.StartPurgeWorker(time.Hour)
+}
+
+// initAuth picks the Authenticator of the run mode: the only place that
+// switches on FREEROUTER_AUTH for request authentication.
+func (c *Container) initAuth() {
+	var keys server.KeyResolver
+	if c.APIKey != nil {
+		keys = c.APIKey.Keys
+	}
+	switch c.Config.Auth.Mode {
+	case config.AuthNone:
+		c.Auth = server.Open{Keys: keys, ConsoleOrigins: c.Config.Server.ConsoleOrigins}
+	case config.AuthToken:
+		c.Auth = server.NewTokens(c.Config.Auth.AdminToken, keys)
+	default:
+		c.Auth = server.IAM{
+			Client: authclient.New(c.Config.IAMKit.BaseURL, authclient.WithHTTPClient(iamHTTP)),
+			Config: c.Config.IAMKit,
+		}
+	}
+}
+
+// consoleConfig is GET /api/v1/config: how the console signs in.
+type consoleConfig struct {
+	Auth   config.AuthMode `json:"auth"`
+	IAMKit *consoleIAMKit  `json:"iamkit,omitempty"`
+}
+
+// consoleIAMKit is the IAMKit login boundary (iam mode): public ids only.
+type consoleIAMKit struct {
+	URL            string `json:"url"`
+	EnvironmentID  string `json:"environment_id"`
+	OrganizationID string `json:"organization_id"`
+	ApplicationID  string `json:"application_id"`
+	ResourceID     string `json:"resource_id"`
+	Audience       string `json:"audience"`
+}
+
+func (c *Container) publicConfig(ctx *fiber.Ctx) error {
+	out := consoleConfig{Auth: c.Config.Auth.Mode}
+	if c.Config.Auth.Mode == config.AuthIAM {
+		k := c.Config.IAMKit
+		out.IAMKit = &consoleIAMKit{URL: k.PublicURL, EnvironmentID: k.EnvironmentID, OrganizationID: k.OrganizationID,
+			ApplicationID: k.ApplicationID, ResourceID: k.ResourceID, Audience: k.Audience}
+	}
+	return ctx.JSON(out)
 }
 
 // Cleanup releases all resources.

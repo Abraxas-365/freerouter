@@ -31,12 +31,15 @@ services:
       timeout: 3s
       retries: 10
 
-  # ── IAMKit ─────────────────────────────────────────────────────────
+  # ── IAMKit (FREEROUTER_AUTH=iam only: profile "iam") ────────────────
+  # Started only with COMPOSE_PROFILES=iam, which `make init-iam` writes to
+  # .env (compose reads it). token/none modes run without it.
   # Built from source (IAMKIT_SRC, default ../iam) so the server matches the
   # SDK version pinned in go.mod. The workspace owner is created by
   # `make bootstrap` with the `iamkit bootstrap` CLI (credential written to a
   # private file, never to logs), so no IAMKIT_BOOTSTRAP_* variables here.
   iamkit:
+    profiles: [iam]
     build:
       context: ${IAMKIT_SRC:-../iam}
     image: iamkit:freerouter-dev

@@ -13,7 +13,7 @@ Connect your providers through a unified, OpenAI-compatible API, with routing, g
   <a href="go.mod"><img src="https://img.shields.io/badge/Backend-Go-00ADD8?style=flat-square&amp;logo=go&amp;logoColor=white" alt="Go backend" /></a>
   <a href="web/"><img src="https://img.shields.io/badge/Console-React-64b5ff?style=flat-square&amp;logo=react&amp;logoColor=white" alt="React console" /></a>
   <a href="docker-compose.yml"><img src="https://img.shields.io/badge/Data-PostgreSQL_%2B_Redis-8ba6bf?style=flat-square" alt="PostgreSQL and Redis" /></a>
-  <a href="#auth-iamkit"><img src="https://img.shields.io/badge/Auth-IAMKit-65e5b5?style=flat-square" alt="IAMKit-backed auth" /></a>
+  <a href="#auth-modes"><img src="https://img.shields.io/badge/Auth-token%20%7C%20IAMKit-65e5b5?style=flat-square" alt="Admin token or IAMKit auth" /></a>
 </p>
 
 **[Get started](#quick-start)** &nbsp; · &nbsp;
@@ -30,7 +30,7 @@ Connect your providers through a unified, OpenAI-compatible API, with routing, g
 
 FreeRouter is a self-hosted LLM gateway that sits between your applications and AI providers. Send requests in **OpenAI**, **Anthropic**, or **Responses API** format — FreeRouter translates and routes them to the cheapest healthy provider key across OpenAI, Anthropic, Google AI Studio, Mistral, DeepSeek, xAI, Groq, and Together AI.
 
-It's built for teams that run their own LLM access layer: every request is authenticated, guardrail-checked, rate-limited, and logged for usage analytics — no billing system, no home-grown IAM. Auth, users, and permissions are delegated entirely to [IAMKit](https://github.com/Abraxas-365/iamkit), running as a sidecar.
+It's built for teams that run their own LLM access layer: every request is authenticated, guardrail-checked, rate-limited, and logged for usage analytics — no billing system, no home-grown IAM. Run it with a single admin token, or delegate users, roles, and permissions to [IAMKit](https://github.com/Abraxas-365/iamkit) running as a sidecar (see [Auth modes](#auth-modes)).
 
 ```mermaid
 flowchart LR
@@ -87,7 +87,7 @@ flowchart LR
 |---|---|
 | **Gateway** | Chat completions, Anthropic Messages, Responses API, embeddings, transcription, speech, moderation, rerank, image generation, streaming (SSE), cost estimation |
 | **Routing** | Cheapest / lowest-latency / round-robin strategies, retry + provider fallback, model fallback chains, per-subject routing config |
-| **Auth** | Delegated to IAMKit — JWT introspection, scoped permissions, service accounts (API keys) |
+| **Auth** | `FREEROUTER_AUTH`: `none` (localhost only), `token` (admin token + scoped `fr_` gateway keys), or `iam` (IAMKit: JWT introspection, users, roles, service accounts) |
 | **Provider keys** | Encrypted upstream API keys (NaCl secretbox), per-provider, with health-based key selection |
 | **Rate limiting** | Per-subject RPM + concurrency limits (Redis-backed sliding window), configurable via API |
 | **Guardrails** | PII detection, secret detection, jailbreak/prompt-injection detection, custom regex rules; block, redact, or warn; violation logs |
@@ -129,17 +129,38 @@ FreeRouter seeds **8 providers and 58 models** out of the box via migrations. Ad
 git clone https://github.com/Abraxas-365/freerouter.git
 cd freerouter
 
-cp .env.example .env   # or let make init create it with fresh secrets
-make init    # .env secrets + JWT key, build IAMKit from ../iam, start Postgres + Redis + IAMKit, migrate, provision IAMKit
+make init    # .env with fresh secrets, start Postgres + Redis, migrate (FREEROUTER_AUTH=token)
 make dev     # start the server at http://localhost:3000
+```
+
+Sign in to the console and the admin API with `FREEROUTER_ADMIN_TOKEN` from `.env`.
+Want users, roles and per-person permissions instead? Use IAMKit:
+
+```bash
+make init-iam   # also builds IAMKit from ../iam, starts it and provisions it (FREEROUTER_AUTH=iam)
 ```
 
 IAMKit is built from source (`IAMKIT_SRC`, default `../iam`) so the server matches
 the SDK pinned in `go.mod`. `make bootstrap` creates the workspace owner with the
 `iamkit bootstrap` CLI (credential in `.dev-secrets/owner.json`, never in logs),
 provisions the environment and writes the ids to `.env`. To move to a newer IAMKit,
-`make reset && make init` (IAMKit schemas have no upgrade path between squashed
+`make reset && make init-iam` (IAMKit schemas have no upgrade path between squashed
 migrations).
+
+### Auth modes
+
+`FREEROUTER_AUTH` picks how callers authenticate. The console asks the server
+(`GET /api/v1/config`) and shows the matching sign-in, so one build serves all three.
+
+| Mode | Who it's for | Console / admin API | Gateway (`/v1/*`) |
+|---|---|---|---|
+| `none` | One developer on their own machine | No login. The server listens on `127.0.0.1` only and refuses other hosts, proxied requests and browser calls from any other origin (other local apps included) except loopback origins you list in `FREEROUTER_CONSOLE_ORIGINS` (none by default; `npm run dev` needs none) | Open on localhost; `fr_` keys, if sent, are enforced |
+| `token` | A small team or a single server, no IAMKit | `FREEROUTER_ADMIN_TOKEN` as a bearer, or the console's HttpOnly session cookie | `fr_` keys created in the console, scoped and expiring |
+| `iam` | Organizations | IAMKit users, roles and permissions | IAMKit service accounts (`ik_svc_`) or JWTs |
+
+Unset, it is `iam` when `IAMKIT_ENVIRONMENT_ID` is set (existing deployments
+keep working) and `token` otherwise. User and role management (`/api/v1/access`)
+exists only in `iam`.
 
 ```bash
 curl http://localhost:3000/health
@@ -150,15 +171,14 @@ curl http://localhost:3000/health
 ```bash
 cd web
 npm install
-cp .env.example .env   # fill in the IAMKit boundary IDs, see web/README.md
-npm run dev             # http://localhost:5173
+npm run dev             # http://localhost:5173 — proxies /api and /v1 to :3000
 ```
 
 ### First request
 
-1. Use the admin API key `make bootstrap` wrote to `.dev-secrets/admin-service-account` (all `freerouter:*` permissions), or sign in via the console (`web/README.md`)
+1. Authenticate: `FREEROUTER_ADMIN_TOKEN` as a bearer (`token`), nothing (`none`), or in `iam` the admin API key `make bootstrap` wrote to `.dev-secrets/admin-service-account` — or sign in via the console
 2. Add a provider key (your own OpenAI/Anthropic/... API key) via the API or console
-3. Create a FreeRouter service account (API key) with the gateway scope
+3. Create a service account (API key) with the gateway scope — an `fr_...` key, or `ik_svc_...` in `iam`
 4. Call it like OpenAI:
 
 ```bash
@@ -217,7 +237,7 @@ curl http://localhost:3000/v1/cost/estimate \
 | `POST` | `/v1/images/generations` | Image generation |
 | `POST` | `/v1/cost/estimate` | Estimate cost before sending |
 
-### Management (`/api/v1/*`, IAMKit-authenticated + scoped permissions)
+### Management (`/api/v1/*`, authenticated per `FREEROUTER_AUTH` + scoped permissions)
 
 <details>
 <summary><strong>Management API · providers, gateway config, usage, and access</strong></summary>
@@ -232,8 +252,8 @@ curl http://localhost:3000/v1/cost/estimate \
 | **Guardrails** | Content filtering config, custom rules, and violation logs |
 | **Webhooks** | Event subscriptions and delivery history |
 | **Gateway** | Response cache invalidation |
-| **Service accounts** | API keys backed by IAMKit service accounts |
-| **Access** | Users and roles (proxied to IAMKit) |
+| **Service accounts** | Gateway API keys: local `fr_` keys (`none`/`token`) or IAMKit service accounts (`iam`) |
+| **Access** | Users and roles (proxied to IAMKit; `iam` only) |
 
 </details>
 
@@ -246,14 +266,21 @@ Everything is configured via environment variables — see `.env.example` for th
 | Variable | Default | Description |
 |---|---|---|
 | `SERVER_PORT` | `3000` | HTTP server port |
+| `SERVER_HOST` | all interfaces (`none`: `127.0.0.1`) | Interface to listen on |
+| `FREEROUTER_AUTH` | `iam` if `IAMKIT_ENVIRONMENT_ID` is set, else `token` | `none`, `token` or `iam` — see [Auth modes](#auth-modes) |
+| `FREEROUTER_ADMIN_TOKEN` | — | `token` mode: admin credential, at least 32 characters (`make setup` generates one); wrong guesses are throttled per client IP (10/min) |
+| `FREEROUTER_CONSOLE_ORIGINS` | — | `none` mode: extra loopback origins trusted to drive the API (e.g. `http://localhost:5173` when the console calls `:3000` directly via `VITE_API_URL`) |
+| `TRUSTED_PROXIES` | — | IPs/CIDRs of your reverse proxies; their `PROXY_HEADER` (default `X-Forwarded-For`) gives the client IP for throttling. Unset = the socket peer |
 | `APP_ENV` | `development` | `development` or `production` |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | `localhost` / `5432` / … | PostgreSQL connection |
 | `REDIS_ADDR` | `localhost:6379` | Redis connection |
 | `ENCRYPTION_KEY` | — | 32-byte hex key for encrypting stored provider API keys |
 | `CACHE_ENABLED` / `CACHE_TTL_SECONDS` | `true` / `60` | Response cache for non-streaming chat completions |
 | `METRICS_ENABLED` | `true` | Exposes Prometheus metrics at `GET /metrics` |
+| `UPSTREAM_RESPONSE_TIMEOUT_SECONDS` | `120` | How long one upstream attempt may take to start answering before the gateway fails over to the next route. Non-streaming providers answer only when generation ends, so keep it above your longest expected completion |
 | `IAMKIT_BASE_URL` / `IAMKIT_JWT_ISSUER` / `IAMKIT_AUDIENCE` | `http://localhost:8080` / same / — | IAMKit connection and the token boundaries every request is checked against |
-| `IAMKIT_ENVIRONMENT_ID` / `IAMKIT_APPLICATION_ID` / `IAMKIT_RESOURCE_ID` / `IAMKIT_ORGANIZATION_ID` | — | IAMKit boundary IDs (written by `make bootstrap`); the server refuses to start without them |
+| `IAMKIT_ENVIRONMENT_ID` / `IAMKIT_APPLICATION_ID` / `IAMKIT_RESOURCE_ID` / `IAMKIT_ORGANIZATION_ID` | — | IAMKit boundary IDs (written by `make bootstrap`); in `iam` mode the server refuses to start without them |
+| `IAMKIT_PUBLIC_URL` | — | IAMKit URL the browser signs in against; empty = the console's build-time `VITE_IAMKIT_URL` (`IAMKIT_BASE_URL` may be an internal Docker host) |
 | `IAMKIT_SERVICE_SECRET` | — | FreeRouter's backend service account (`ik_svc_`) on the IAM resource, least privilege (`scripts/permissions.sh`). Enables user/role and API-key management; `ik_mgmt_` keys are rejected |
 
 ---
@@ -289,28 +316,29 @@ internal/
   ratelimit/                   # Per-subject RPM + concurrency enforcement (Redis-backed)
   guardrail/                   # Content filtering: system detectors + custom rules
   webhook/                     # Event subscriptions and signed delivery
-  apikey/                      # Service-account-backed API keys (IAMKit-managed)
-  access/                      # Users and roles (proxied to IAMKit)
+  apikey/                      # Gateway API keys: local fr_ keys (Postgres) or IAMKit service accounts
+  access/                      # Users and roles (proxied to IAMKit; iam mode only)
   identity/                    # Typed generic IDs
   query/ · httpx/              # Pagination and HTTP helpers
-  server/                      # Fiber server, error middleware, IAMKit auth middleware
+  server/                      # Fiber server, error middleware, authenticators (Open/Tokens/IAM)
   config/                       # Env-based configuration
   errx/                         # Typed error system
 web/                           # React + TypeScript + Vite operator console
 migrations/                    # PostgreSQL schema + seeded providers/models
-docker-compose.yml             # Postgres 16 + Redis 7 + IAMKit
+docker-compose.yml             # Postgres 16 + Redis 7 (+ IAMKit, profile "iam")
 ```
 
-Design principles: hexagonal architecture (ports/adapters per module, `*svc` for business logic, `*module` assemblers), raw SQL via `sqlx` (no ORM), typed generic IDs everywhere, identity and permissions delegated to IAMKit.
+Design principles: hexagonal architecture (ports/adapters per module, `*svc` for business logic, `*module` assemblers), raw SQL via `sqlx` (no ORM), typed generic IDs everywhere, authentication behind one `server.Authenticator` port (identity and permissions delegated to IAMKit in `iam` mode).
 
 ---
 
 ## Development
 
 ```bash
-make init           # jwt-key + services up + migrate + bootstrap
+make init           # .env + services up + migrate (token mode, no IAMKit)
+make init-iam       # same + build, start and provision IAMKit (iam mode)
 make dev            # build and run the server
-make up / make down # start/stop PostgreSQL + Redis + IAMKit
+make up / make down # start/stop PostgreSQL + Redis (+ IAMKit when .env selects iam)
 make migrate         # run migrations
 make vet             # go vet
 make lint            # golangci-lint

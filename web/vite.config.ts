@@ -11,9 +11,11 @@ export default defineConfig({
     },
   },
   server: {
+    // changeOrigin off: the API sees the browser's Host, so the console's
+    // requests are same-origin (none/token modes reject other origins).
     proxy: {
-      '/api/': 'http://localhost:3000',
-      '/v1/': 'http://localhost:3000',
+      '/api/': { target: 'http://localhost:3000', changeOrigin: false },
+      '/v1/': { target: 'http://localhost:3000', changeOrigin: false },
     },
   },
 })
