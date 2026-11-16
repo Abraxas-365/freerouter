@@ -267,8 +267,8 @@ Find(ctx context.Context, providerID identity.ProviderID) (Provider, error)
 
 ### Auth: modes (`FREEROUTER_AUTH`)
 - One port, three adapters, chosen once in `Container.initAuth`: `server.Authenticator` (`Authenticate()` middleware + `Session()` routes). Handlers only see `server.Principal` via `server.Caller(c)`
-- `none` → `server.Open`: no login, loopback listen + loopback `Host` only, rejects forwarding headers and browser requests from any other origin except loopback `CORS_ALLOWED_ORIGINS` (`Open.ConsoleOrigins`); principal `local` with `LocalPermissions()` (everything except `users:*`/`roles:*`). `fr_` keys, if sent, are enforced
-- `token` → `server.Tokens`: `FREEROUTER_ADMIN_TOKEN` (≥32 chars, wrong guesses throttled per IP) as bearer/`X-Api-Key`, or the HMAC session cookie `freerouter_session` (HttpOnly, SameSite=Strict, 12h, CSRF via same-origin check on unsafe methods). Gateway keys are local `fr_` keys (`gateway_keys`, sha256); a key can neither grant permissions nor an expiry beyond its own
+- `none` → `server.Open`: no login, loopback listen + loopback `Host` only, rejects forwarding headers and browser requests from any other origin except loopback `FREEROUTER_CONSOLE_ORIGINS` (`Open.ConsoleOrigins`, empty by default); principal `local` with `LocalPermissions()` (everything except `users:*`/`roles:*`). `fr_` keys, if sent, are enforced
+- `token` → `server.Tokens`: `FREEROUTER_ADMIN_TOKEN` (≥32 chars, wrong guesses throttled per client IP; `TRUSTED_PROXIES` behind a proxy) as bearer/`X-Api-Key`, or the HMAC session cookie `freerouter_session` (HttpOnly, SameSite=Strict, 12h, CSRF via same-origin check on unsafe methods). Gateway keys are local `fr_` keys (`gateway_keys`, sha256); a key can neither grant permissions nor an expiry beyond its own
 - `iam` → `server.IAM`: everything below
 - Unset: `iam` if `IAMKIT_ENVIRONMENT_ID` is set, else `token`. `config.Validate()` checks per mode; IAMKit config is only required in `iam`
 - `GET /api/v1/config` (public) tells the console the mode and, in `iam`, the IAMKit boundary; `/api/v1/session` exists only when the mode has sessions

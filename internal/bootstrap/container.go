@@ -188,7 +188,8 @@ func (c *Container) initModules() error {
 }
 
 func (c *Container) initServer() {
-	srv := server.New(c.Config.Server.Addr(), server.WithNetwork(c.Config.Server.Network()))
+	srv := server.New(c.Config.Server.Addr(), server.WithNetwork(c.Config.Server.Network()),
+		server.WithTrustedProxies(c.Config.Server.TrustedProxies, c.Config.Server.ProxyHeader))
 	app := srv.App()
 
 	// Common middleware

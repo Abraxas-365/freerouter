@@ -23,9 +23,10 @@ const LocalSubject = "local"
 //     callers into loopback connections; they all add X-Forwarded-For or
 //     similar. Vite's dev proxy adds none, so `npm run dev` keeps working.
 //   - No browser request from another origin, loopback ones included, unless
-//     the operator listed it (ConsoleOrigins, e.g. the console on Vite's
-//     port calling :3000 directly). CORS allows any origin, so without this
-//     any web page — or any other local app — could drive the open API.
+//     the operator listed it (FREEROUTER_CONSOLE_ORIGINS, e.g. the console
+//     on Vite's port calling :3000 directly). CORS allows any origin, so
+//     without this any web page — or any other local app — could drive the
+//     open API.
 //
 // A gateway key (fr_...) sent anyway is resolved as that key's principal (a
 // wrong key is 401, never ignored); any other bearer is ignored, so SDKs
@@ -63,7 +64,11 @@ func (o Open) allow(c *fiber.Ctx) bool {
 			"FREEROUTER_AUTH=none refuses proxied requests ("+h+"); use FREEROUTER_AUTH=token behind a proxy")
 	}
 	if !o.localOrigin(c) {
-		return refuse(fiber.StatusForbidden, "FORBIDDEN", "cross-origin request rejected")
+		msg := "cross-origin request rejected"
+		if origin := c.Get("Origin"); origin != "" {
+			msg += "; if " + origin + " is your console, add it to FREEROUTER_CONSOLE_ORIGINS"
+		}
+		return refuse(fiber.StatusForbidden, "FORBIDDEN", msg)
 	}
 	p := Principal{Subject: LocalSubject, Permissions: LocalPermissions()}
 	normalizeAPIKeyHeader(c)

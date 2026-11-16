@@ -29,9 +29,16 @@ type Server struct {
 	Port string
 	Host string // SERVER_HOST: listen address; "" = all interfaces (none mode: 127.0.0.1)
 	Env  string // "development", "staging", "production"
-	// ConsoleOrigins (CORS_ALLOWED_ORIGINS) are the browser origins trusted
-	// to drive the API besides its own, e.g. the console on Vite's port.
+	// ConsoleOrigins (FREEROUTER_CONSOLE_ORIGINS) are the extra browser
+	// origins none mode trusts to drive the API besides its own, e.g. the
+	// console on Vite's port calling :3000 directly. No default: any other
+	// local app on a listed origin holds the owner's access.
 	ConsoleOrigins []string
+	// TrustedProxies (TRUSTED_PROXIES: IPs/CIDRs) are the reverse proxies
+	// whose ProxyHeader (PROXY_HEADER, default X-Forwarded-For) gives the
+	// client IP; token mode throttles admin-token guesses per client IP.
+	TrustedProxies []string
+	ProxyHeader    string
 }
 
 // Addr is the listen address (an IPv6 host may be given bracketed or not).
@@ -172,7 +179,7 @@ type Webhook struct {
 // taken from the token or the request.
 type IAMKit struct {
 	BaseURL        string // e.g. "http://localhost:8080"
-	PublicURL      string // IAMKit URL the browser signs in against (IAMKIT_PUBLIC_URL; default BaseURL)
+	PublicURL      string // IAMKit URL the browser signs in against (IAMKIT_PUBLIC_URL); "" = the console's build-time VITE_IAMKIT_URL
 	ServiceSecret  string // ik_svc_... backend service account on the environment's IAM resource (optional)
 	EnvironmentID  string // IAMKit environment UUID
 	ApplicationID  string // IAMKit application UUID
@@ -226,7 +233,9 @@ func Load() Config {
 			Port:           envOr("SERVER_PORT", "3000"),
 			Host:           envOr("SERVER_HOST", defaultHost(mode)),
 			Env:            envOr("APP_ENV", "development"),
-			ConsoleOrigins: csv(envOr("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")),
+			ConsoleOrigins: csv(os.Getenv("FREEROUTER_CONSOLE_ORIGINS")),
+			TrustedProxies: csv(os.Getenv("TRUSTED_PROXIES")),
+			ProxyHeader:    envOr("PROXY_HEADER", "X-Forwarded-For"),
 		},
 		Auth: Auth{
 			Mode:       mode,
@@ -256,8 +265,10 @@ func Load() Config {
 			UpstreamResponseTimeout: time.Duration(envOrInt("UPSTREAM_RESPONSE_TIMEOUT_SECONDS", 120)) * time.Second,
 		},
 		IAMKit: IAMKit{
-			BaseURL:        envOr("IAMKIT_BASE_URL", "http://localhost:8080"),
-			PublicURL:      envOr("IAMKIT_PUBLIC_URL", envOr("IAMKIT_BASE_URL", "http://localhost:8080")),
+			BaseURL: envOr("IAMKIT_BASE_URL", "http://localhost:8080"),
+			// No BaseURL default: that is the server's address for IAMKit (in
+			// Docker an internal host), not necessarily the browser's.
+			PublicURL:      os.Getenv("IAMKIT_PUBLIC_URL"),
 			ServiceSecret:  envOr("IAMKIT_SERVICE_SECRET", ""),
 			EnvironmentID:  envOr("IAMKIT_ENVIRONMENT_ID", ""),
 			ApplicationID:  envOr("IAMKIT_APPLICATION_ID", ""),

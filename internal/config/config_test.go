@@ -145,3 +145,26 @@ func TestLoad_TrimsAdminToken(t *testing.T) {
 		t.Fatalf("AdminToken = %q, want trimmed", got)
 	}
 }
+
+// IAMKIT_BASE_URL is the server's address for IAMKit (in Docker an internal
+// host); it must not leak to the browser as the login URL.
+func TestLoad_PublicURLDoesNotDefaultToBaseURL(t *testing.T) {
+	t.Setenv("IAMKIT_BASE_URL", "http://iamkit:8080")
+	t.Setenv("IAMKIT_PUBLIC_URL", "")
+	if got := Load().IAMKit.PublicURL; got != "" {
+		t.Fatalf("PublicURL = %q, want empty (console falls back to VITE_IAMKIT_URL)", got)
+	}
+}
+
+func TestLoad_NoDefaultConsoleOriginsOrProxies(t *testing.T) {
+	t.Setenv("FREEROUTER_CONSOLE_ORIGINS", "")
+	t.Setenv("TRUSTED_PROXIES", "")
+	s := Load().Server
+	if len(s.ConsoleOrigins) != 0 || len(s.TrustedProxies) != 0 || s.ProxyHeader != "X-Forwarded-For" {
+		t.Fatalf("server = %+v, want no trusted origins/proxies by default", s)
+	}
+	t.Setenv("FREEROUTER_CONSOLE_ORIGINS", " http://localhost:5173 ,")
+	if got := Load().Server.ConsoleOrigins; len(got) != 1 || got[0] != "http://localhost:5173" {
+		t.Fatalf("ConsoleOrigins = %q", got)
+	}
+}

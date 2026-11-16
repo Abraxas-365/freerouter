@@ -154,7 +154,7 @@ migrations).
 
 | Mode | Who it's for | Console / admin API | Gateway (`/v1/*`) |
 |---|---|---|---|
-| `none` | One developer on their own machine | No login. The server listens on `127.0.0.1` only and refuses other hosts, proxied requests and browser calls from any other origin (other local apps included) except the loopback console origins in `CORS_ALLOWED_ORIGINS` | Open on localhost; `fr_` keys, if sent, are enforced |
+| `none` | One developer on their own machine | No login. The server listens on `127.0.0.1` only and refuses other hosts, proxied requests and browser calls from any other origin (other local apps included) except loopback origins you list in `FREEROUTER_CONSOLE_ORIGINS` (none by default; `npm run dev` needs none) | Open on localhost; `fr_` keys, if sent, are enforced |
 | `token` | A small team or a single server, no IAMKit | `FREEROUTER_ADMIN_TOKEN` as a bearer, or the console's HttpOnly session cookie | `fr_` keys created in the console, scoped and expiring |
 | `iam` | Organizations | IAMKit users, roles and permissions | IAMKit service accounts (`ik_svc_`) or JWTs |
 
@@ -268,7 +268,9 @@ Everything is configured via environment variables — see `.env.example` for th
 | `SERVER_PORT` | `3000` | HTTP server port |
 | `SERVER_HOST` | all interfaces (`none`: `127.0.0.1`) | Interface to listen on |
 | `FREEROUTER_AUTH` | `iam` if `IAMKIT_ENVIRONMENT_ID` is set, else `token` | `none`, `token` or `iam` — see [Auth modes](#auth-modes) |
-| `FREEROUTER_ADMIN_TOKEN` | — | `token` mode: admin credential, at least 32 characters (`make setup` generates one); wrong guesses are throttled per client (10/min) |
+| `FREEROUTER_ADMIN_TOKEN` | — | `token` mode: admin credential, at least 32 characters (`make setup` generates one); wrong guesses are throttled per client IP (10/min) |
+| `FREEROUTER_CONSOLE_ORIGINS` | — | `none` mode: extra loopback origins trusted to drive the API (e.g. `http://localhost:5173` when the console calls `:3000` directly via `VITE_API_URL`) |
+| `TRUSTED_PROXIES` | — | IPs/CIDRs of your reverse proxies; their `PROXY_HEADER` (default `X-Forwarded-For`) gives the client IP for throttling. Unset = the socket peer |
 | `APP_ENV` | `development` | `development` or `production` |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | `localhost` / `5432` / … | PostgreSQL connection |
 | `REDIS_ADDR` | `localhost:6379` | Redis connection |
@@ -278,7 +280,7 @@ Everything is configured via environment variables — see `.env.example` for th
 | `UPSTREAM_RESPONSE_TIMEOUT_SECONDS` | `120` | How long one upstream attempt may take to start answering before the gateway fails over to the next route. Non-streaming providers answer only when generation ends, so keep it above your longest expected completion |
 | `IAMKIT_BASE_URL` / `IAMKIT_JWT_ISSUER` / `IAMKIT_AUDIENCE` | `http://localhost:8080` / same / — | IAMKit connection and the token boundaries every request is checked against |
 | `IAMKIT_ENVIRONMENT_ID` / `IAMKIT_APPLICATION_ID` / `IAMKIT_RESOURCE_ID` / `IAMKIT_ORGANIZATION_ID` | — | IAMKit boundary IDs (written by `make bootstrap`); in `iam` mode the server refuses to start without them |
-| `IAMKIT_PUBLIC_URL` | `IAMKIT_BASE_URL` | IAMKit URL the browser signs in against, when it differs from the server's |
+| `IAMKIT_PUBLIC_URL` | — | IAMKit URL the browser signs in against; empty = the console's build-time `VITE_IAMKIT_URL` (`IAMKIT_BASE_URL` may be an internal Docker host) |
 | `IAMKIT_SERVICE_SECRET` | — | FreeRouter's backend service account (`ik_svc_`) on the IAM resource, least privilege (`scripts/permissions.sh`). Enables user/role and API-key management; `ik_mgmt_` keys are rejected |
 
 ---

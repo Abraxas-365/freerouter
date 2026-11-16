@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -328,6 +329,46 @@ func TestTokens_ThrottlesAdminTokenGuesses(t *testing.T) {
 	// Gateway keys are unguessable and stay usable.
 	if p := principalOf(t, do(t, app, "GET", "/api/v1/whoami", "", map[string]string{"Authorization": "Bearer " + goodKey})); p.Subject != "key-1" {
 		t.Fatalf("key while throttled: %+v", p)
+	}
+}
+
+// Behind a trusted proxy each client has its own bucket; from anyone else
+// X-Forwarded-For is ignored, so it can't be rotated to dodge the limit.
+func TestTokens_ThrottlePerClientBehindTrustedProxy(t *testing.T) {
+	guess := func(app *fiber.App, xff string) int {
+		req := httptest.NewRequest("GET", "/api/v1/whoami", nil)
+		req.Header.Set("Authorization", "Bearer wrong")
+		req.Header.Set("X-Forwarded-For", xff)
+		resp, err := app.Test(req, -1) // app.Test's peer is 0.0.0.0
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	build := func(proxies []string) *fiber.App {
+		app := New("", WithTrustedProxies(proxies, "X-Forwarded-For")).App()
+		app.Get("/api/v1/whoami", NewTokens(adminToken, nil).Authenticate(), func(c *fiber.Ctx) error { return c.SendStatus(200) })
+		return app
+	}
+
+	trusted := build([]string{"0.0.0.0"})
+	for i := 0; i < adminGuessLimit; i++ {
+		guess(trusted, "203.0.113.1")
+	}
+	if s := guess(trusted, "203.0.113.1"); s != 429 {
+		t.Fatalf("attacker behind proxy = %d, want 429", s)
+	}
+	if s := guess(trusted, "198.51.100.7"); s != 401 {
+		t.Fatalf("another client behind the same proxy = %d, want 401 (not locked out)", s)
+	}
+
+	untrusted := build(nil)
+	for i := 0; i < adminGuessLimit; i++ {
+		guess(untrusted, fmt.Sprintf("203.0.113.%d", i))
+	}
+	if s := guess(untrusted, "203.0.113.200"); s != 429 {
+		t.Fatalf("rotating X-Forwarded-For without a trusted proxy = %d, want 429", s)
 	}
 }
 

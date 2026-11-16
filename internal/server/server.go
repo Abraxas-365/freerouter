@@ -56,6 +56,22 @@ func WithNetwork(network string) Option {
 	return func(c *fiber.Config) { c.Network = network }
 }
 
+// WithTrustedProxies makes c.IP() the client IP taken from header when the
+// connection comes from one of proxies (IPs or CIDRs). From anyone else,
+// and when proxies is empty, c.IP() stays the socket peer: a forwarding
+// header can't be spoofed to dodge per-client throttling.
+func WithTrustedProxies(proxies []string, header string) Option {
+	return func(c *fiber.Config) {
+		if len(proxies) == 0 {
+			return
+		}
+		c.EnableTrustedProxyCheck = true
+		c.TrustedProxies = proxies
+		c.ProxyHeader = header
+		c.EnableIPValidation = true
+	}
+}
+
 // New creates a configured Fiber server with the global error handler,
 // listening on addr (host:port; empty host = all interfaces).
 func New(addr string, opts ...Option) *Server {
