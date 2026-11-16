@@ -798,12 +798,12 @@ func (h *Handler) checkRateLimit(c *fiber.Ctx) (string, func(), error) {
 	return subjectID, release, nil
 }
 
-// subjectFromClaims extracts the authenticated subject ID from JWT claims,
-// falling back to "anonymous" when no claims are present.
+// subjectFromClaims returns the authenticated caller's subject (a gateway
+// key id, an IAMKit subject, "admin" or "local" depending on the auth
+// mode), falling back to "anonymous" when no principal is present.
 func subjectFromClaims(c *fiber.Ctx) string {
-	claims := server.Claims(c)
-	if claims != nil && claims.Subject != "" {
-		return claims.Subject
+	if p, ok := server.Caller(c); ok && p.Subject != "" {
+		return p.Subject
 	}
 	return "anonymous"
 }

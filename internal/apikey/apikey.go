@@ -17,6 +17,9 @@ type ServiceAccount struct {
 	ResourceID    string   `json:"resource_id"`
 	Permissions   []string `json:"permissions"`
 	ExpiresIn     string   `json:"expires_in,omitempty"`
+	// ExpiresAt is set for keys FreeRouter issues itself (none/token modes);
+	// nil for keys that never expire and for IAMKit service accounts.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 // Application is an IAMKit application that a service account can belong to
@@ -30,8 +33,10 @@ type Application struct {
 
 // ServiceAccountCredential is returned once on creation — contains the raw secret.
 type ServiceAccountCredential struct {
-	ID        string    `json:"id"`
-	Secret    string    `json:"secret"`
+	ID     string `json:"id"`
+	Secret string `json:"secret"`
+	// ExpiresAt is the zero time for a key that never expires (none/token
+	// modes; IAMKit returns a far-future time instead).
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
@@ -45,6 +50,9 @@ type CreateServiceAccount struct {
 	// CallerPermissions are the permissions of the authenticated caller,
 	// set by the transport from the token, never from the request body.
 	CallerPermissions []string `json:"-"`
+	// CallerExpiresAt is when the caller's own credential expires (nil when
+	// it has no fixed end), set by the transport like CallerPermissions.
+	CallerExpiresAt *time.Time `json:"-"`
 }
 
 // Validate checks the create request and normalises permissions.
@@ -52,9 +60,13 @@ func (c *CreateServiceAccount) Validate() error {
 	if c.Name == "" {
 		return errx.Validation("name is required")
 	}
-	// Default to gateway:invoke when no permissions specified.
+	if _, err := ExpiryFrom(c.ExpiresIn, time.Now()); err != nil {
+		return err
+	}
+	// Default to gateway:invoke when no permissions specified (a copy: the
+	// store and callers may keep the slice).
 	if len(c.Permissions) == 0 {
-		c.Permissions = server.DefaultPermissions
+		c.Permissions = append([]string(nil), server.DefaultPermissions...)
 		return nil
 	}
 	for _, p := range c.Permissions {
@@ -65,10 +77,45 @@ func (c *CreateServiceAccount) Validate() error {
 	return nil
 }
 
+// Expiry bounds of a key, the same in every auth mode (IAMKit's for
+// service accounts).
+const (
+	DefaultExpiry = 24 * time.Hour
+	MinExpiry     = time.Hour
+	MaxExpiry     = 8760 * time.Hour
+	// NeverExpires is the expires_in value of a key that does not expire.
+	NeverExpires = "never"
+)
+
+// ExpiryFrom is when a key created at now with expires_in expires: nil for
+// "never", now+24h when empty, else a Go duration between 1h and 8760h.
+func ExpiryFrom(expiresIn string, now time.Time) (*time.Time, error) {
+	switch expiresIn {
+	case NeverExpires:
+		return nil, nil
+	case "":
+		at := now.Add(DefaultExpiry)
+		return &at, nil
+	}
+	d, err := time.ParseDuration(expiresIn)
+	switch {
+	case err != nil:
+		return nil, errx.Validation(fmt.Sprintf("expires_in must be a Go duration (e.g. 720h) or %q", NeverExpires))
+	case d < MinExpiry:
+		return nil, errx.Validation("expires_in must be at least 1h")
+	case d > MaxExpiry:
+		return nil, errx.Validation("expires_in must be at most 8760h")
+	}
+	at := now.Add(d)
+	return &at, nil
+}
+
 // AuthorizeGrant ensures the caller holds every permission it is granting,
-// so service-accounts:write cannot mint a key more powerful than its holder.
-// Call after Validate (which fills in the default permissions). A caller
-// without permissions can grant nothing.
+// so service-accounts:write cannot mint a key more powerful than its holder,
+// and that a caller whose credential expires cannot mint a key outliving it
+// (a short-lived key must not buy itself persistence). Call after Validate
+// (which fills in the default permissions). A caller without permissions
+// can grant nothing.
 func (c CreateServiceAccount) AuthorizeGrant() error {
 	held := make(map[string]bool, len(c.CallerPermissions))
 	for _, p := range c.CallerPermissions {
@@ -77,6 +124,16 @@ func (c CreateServiceAccount) AuthorizeGrant() error {
 	for _, p := range c.Permissions {
 		if !held[p] {
 			return errx.Forbidden(fmt.Sprintf("cannot grant permission you do not hold: %q", p))
+		}
+	}
+	if c.CallerExpiresAt != nil {
+		at, err := ExpiryFrom(c.ExpiresIn, time.Now())
+		if err != nil {
+			return err
+		}
+		if at == nil || at.After(*c.CallerExpiresAt) {
+			return errx.Forbidden("cannot create a key that outlives your own (expires " +
+				c.CallerExpiresAt.UTC().Format(time.RFC3339) + ")")
 		}
 	}
 	return nil

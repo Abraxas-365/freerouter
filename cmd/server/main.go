@@ -22,7 +22,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("FreeRouter starting on :%s (env=%s)", cfg.Server.Port, cfg.Server.Env)
+	log.Printf("FreeRouter starting on %s (env=%s, auth=%s)", cfg.Server.Addr(), cfg.Server.Env, cfg.Auth.Mode)
 	if err := container.Server.Start(ctx); err != nil {
 		log.Fatalf("server error: %v", err)
 	}

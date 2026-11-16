@@ -1,5 +1,7 @@
 package server
 
+import "sort"
+
 // ResourcePrefix is the IAMKit resource prefix used when registering permissions.
 // JWT claims carry fully-qualified names like "freerouter:gateway:invoke".
 const ResourcePrefix = "freerouter"
@@ -80,6 +82,22 @@ var ValidPermissions = map[string]bool{
 	PermUsersWrite:           true,
 	PermRolesRead:            true,
 	PermRolesWrite:           true,
+}
+
+// LocalPermissions is what the single-owner principals of the none and
+// token modes hold, in a stable order: every permission except users:* and
+// roles:*, which administer IAMKit users and exist only in iam mode.
+func LocalPermissions() []string {
+	out := make([]string, 0, len(ValidPermissions))
+	for p := range ValidPermissions {
+		switch p {
+		case PermUsersRead, PermUsersWrite, PermRolesRead, PermRolesWrite:
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // DefaultPermissions is assigned to service accounts when no permissions

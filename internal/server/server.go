@@ -45,16 +45,25 @@ type RouteRegistrar func(router fiber.Router)
 // Server wraps a Fiber app with structured startup/shutdown.
 type Server struct {
 	app  *fiber.App
-	port string
+	addr string
 }
 
-// New creates a configured Fiber server with the global error handler.
-func New(port string) *Server {
-	app := fiber.New(fiber.Config{
-		ErrorHandler: ErrorMiddleware,
-	})
+// Option configures New.
+type Option func(*fiber.Config)
 
-	return &Server{app: app, port: port}
+// WithNetwork sets the listener network ("tcp4" default, "tcp6", "tcp").
+func WithNetwork(network string) Option {
+	return func(c *fiber.Config) { c.Network = network }
+}
+
+// New creates a configured Fiber server with the global error handler,
+// listening on addr (host:port; empty host = all interfaces).
+func New(addr string, opts ...Option) *Server {
+	cfg := fiber.Config{ErrorHandler: ErrorMiddleware}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	return &Server{app: fiber.New(cfg), addr: addr}
 }
 
 // App returns the underlying Fiber app for route registration.
@@ -64,7 +73,7 @@ func (s *Server) App() *fiber.App { return s.app }
 func (s *Server) Start(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- s.app.Listen(":" + s.port)
+		errCh <- s.app.Listen(s.addr)
 	}()
 
 	select {

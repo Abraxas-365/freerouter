@@ -32,9 +32,9 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&cmd); err != nil {
 		return errx.Validation("invalid request body: " + err.Error())
 	}
-	cmd.CallerPermissions = nil
-	if claims := server.Claims(c); claims != nil {
-		cmd.CallerPermissions = claims.Permissions
+	cmd.CallerPermissions, cmd.CallerExpiresAt = nil, nil
+	if p, ok := server.Caller(c); ok {
+		cmd.CallerPermissions, cmd.CallerExpiresAt = p.Permissions, p.ExpiresAt
 	}
 
 	cred, err := h.commands.Create(c.Context(), cmd)

@@ -2,6 +2,7 @@ package apikey
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Abraxas-365/freerouter/internal/errx"
 	"github.com/Abraxas-365/freerouter/internal/server"
@@ -72,5 +73,43 @@ func TestCreateServiceAccount_AuthorizeGrant(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCreateServiceAccount_KeyCannotOutliveCaller(t *testing.T) {
+	perms := []string{server.PermServiceAccountsWrite, server.PermGatewayInvoke}
+	in2h := time.Now().Add(2 * time.Hour)
+	cases := []struct {
+		name      string
+		callerExp *time.Time
+		expiresIn string
+		ok        bool
+	}{
+		{"no caller expiry, never", nil, NeverExpires, true},
+		{"shorter than caller", &in2h, "1h", true},
+		{"longer than caller", &in2h, "3h", false},
+		{"default 24h outlives a 2h caller", &in2h, "", false},
+		{"never from an expiring caller", &in2h, NeverExpires, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := CreateServiceAccount{Name: "k", Permissions: []string{server.PermGatewayInvoke},
+				ExpiresIn: tc.expiresIn, CallerPermissions: perms, CallerExpiresAt: tc.callerExp}
+			err := cmd.AuthorizeGrant()
+			if tc.ok != (err == nil) {
+				t.Fatalf("err = %v, want ok=%v", err, tc.ok)
+			}
+		})
+	}
+}
+
+func TestValidate_DefaultPermissionsAreACopy(t *testing.T) {
+	cmd := CreateServiceAccount{Name: "k"}
+	if err := cmd.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cmd.Permissions[0] = "mutated"
+	if server.DefaultPermissions[0] == "mutated" {
+		t.Fatal("Validate shares server.DefaultPermissions")
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/Abraxas-365/freerouter/internal/config"
 	"github.com/Abraxas-365/freerouter/internal/errx"
 	"github.com/Abraxas-365/iamkit/sdk/authclient"
-	"github.com/Abraxas-365/iamkit/sdk/authclient/fiberauth"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -32,22 +31,19 @@ const (
 	iamCallTimeout = 5 * time.Second
 )
 
-// Authenticator is the IAMKit surface the auth middleware needs.
+// IAMKitClient is the IAMKit surface the iam mode needs.
 // *authclient.Client satisfies it; tests inject a fake.
-type Authenticator interface {
+type IAMKitClient interface {
 	Introspect(ctx context.Context, token, issuer, audience, environment, application, resource string) (*authclient.Claims, error)
 	MachineToken(ctx context.Context, secret string) (authclient.TokenPair, error)
 }
 
-// AuthMiddleware returns a Fiber middleware that validates access tokens via
-// IAMKit online introspection (live revocation) against the trusted
-// boundaries in cfg, and stores claims on the request context. Build it
-// once and share it between route groups: it owns the token cache.
+// IAM is FREEROUTER_AUTH=iam: access tokens are validated by IAMKit online
+// introspection (live revocation) against the trusted boundaries in
+// Config, and the principal carries the token's subject and permissions.
 //
 // Accepts credentials either as "Authorization: Bearer <token>" or as
 // "X-Api-Key: <token>" (Anthropic SDK / rness anthropic-adapter convention).
-// When only X-Api-Key is present, it is normalized into an Authorization
-// bearer header before delegating to the underlying validator.
 //
 // Service-account secrets (ik_svc_...) are transparently exchanged for
 // short-lived JWTs via IAMKit's MachineToken endpoint and cached in-memory
@@ -55,8 +51,18 @@ type Authenticator interface {
 // directly as a Bearer token — no manual exchange step required
 // (OpenRouter-style DX). The exchanged JWT is still introspected on every
 // request, so revocation applies immediately.
-func AuthMiddleware(auth Authenticator, cfg config.IAMKit) fiber.Handler {
+type IAM struct {
+	Client IAMKitClient
+	Config config.IAMKit
+}
+
+var _ Authenticator = IAM{}
+
+// Authenticate returns the middleware. Build it once and share it between
+// route groups: it owns the token cache.
+func (a IAM) Authenticate() fiber.Handler {
 	cache := newTokenCache(tokenCacheMargin, tokenCacheSweep)
+	cfg := a.Config
 
 	validate := func(ctx context.Context, raw string) (*authclient.Claims, error) {
 		token := raw
@@ -68,7 +74,7 @@ func AuthMiddleware(auth Authenticator, cfg config.IAMKit) fiber.Handler {
 				token = cached
 			} else {
 				exchangeCtx, cancel := context.WithTimeout(ctx, iamCallTimeout)
-				pair, err := auth.MachineToken(exchangeCtx, raw)
+				pair, err := a.Client.MachineToken(exchangeCtx, raw)
 				cancel()
 				if err != nil {
 					return nil, errx.Unauthorized("invalid service account credential")
@@ -80,7 +86,7 @@ func AuthMiddleware(auth Authenticator, cfg config.IAMKit) fiber.Handler {
 
 		introspectCtx, cancel := context.WithTimeout(ctx, iamCallTimeout)
 		defer cancel()
-		claims, err := auth.Introspect(
+		claims, err := a.Client.Introspect(
 			introspectCtx, token,
 			cfg.JWTIssuer,
 			cfg.Audience,
@@ -88,17 +94,29 @@ func AuthMiddleware(auth Authenticator, cfg config.IAMKit) fiber.Handler {
 			cfg.ApplicationID,
 			cfg.ResourceID,
 		)
-		if err != nil {
+		if err != nil || claims == nil {
 			return nil, errx.Unauthorized("invalid or expired token")
 		}
 		return claims, nil
 	}
-	next := fiberauth.Authenticate(validate)
+
 	return func(c *fiber.Ctx) error {
 		normalizeAPIKeyHeader(c)
-		return next(c)
+		raw := bearer(c)
+		if raw == "" {
+			return authError(c, fiber.StatusUnauthorized, "UNAUTHORIZED", "missing or invalid bearer token")
+		}
+		claims, err := validate(c.UserContext(), raw)
+		if err != nil {
+			return authError(c, fiber.StatusUnauthorized, "UNAUTHORIZED", "invalid or expired token")
+		}
+		SetPrincipal(c, Principal{Subject: claims.Subject, Permissions: claims.Permissions})
+		return c.Next()
 	}
 }
+
+// Session: none — the console signs in against IAMKit directly.
+func (IAM) Session() SessionRoutes { return SessionRoutes{} }
 
 // secretKey is the cache key for a service-account secret: its SHA-256, so
 // raw credentials are not kept in memory longer than the request.
@@ -120,16 +138,4 @@ func normalizeAPIKeyHeader(c *fiber.Ctx) {
 		return
 	}
 	c.Request().Header.Set("Authorization", "Bearer "+apiKey)
-}
-
-// RequirePermissions returns middleware that checks the authenticated claims
-// for the specified permissions. Returns 403 if any are missing.
-func RequirePermissions(perms ...string) fiber.Handler {
-	return fiberauth.RequirePermissions(perms...)
-}
-
-// Claims extracts the authenticated IAMKit claims from the Fiber context.
-// Returns nil if no claims are set (unauthenticated route).
-func Claims(c *fiber.Ctx) *authclient.Claims {
-	return fiberauth.Claims(c)
 }
