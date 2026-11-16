@@ -47,8 +47,9 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
 
 /**
  * GET /api/v1/config. A 404 is a server that predates the auth modes (iam
- * only). A network error is retried with backoff first — a server
- * restarting under `make dev` must not pin a none/token console to iam.
+ * only). Network errors and 5xx are retried with backoff — a server
+ * restarting under `make dev` — and then thrown: guessing iam would pin a
+ * none/token console to the IAMKit login. Nothing is cached on failure.
  */
 async function fetchConfig(): Promise<RuntimeConfig> {
   for (let attempt = 0; ; attempt++) {
@@ -59,7 +60,7 @@ async function fetchConfig(): Promise<RuntimeConfig> {
     } catch {
       // network error: retry below
     }
-    if (attempt === 3) return { auth: "iam" }
+    if (attempt === 3) throw new Error("FreeRouter server unreachable")
     await new Promise((r) => setTimeout(r, 500 * 2 ** attempt))
   }
 }

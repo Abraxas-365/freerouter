@@ -69,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [permissions, setPermissions] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [unreachable, setUnreachable] = useState<string | null>(null)
 
   const applySession = useCallback((s: SessionState) => {
     setAuthenticated(s.authenticated)
@@ -78,7 +79,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const cfg = await loadRuntimeConfig()
+      let cfg
+      try {
+        cfg = await loadRuntimeConfig()
+      } catch (e) {
+        if (!cancelled) setUnreachable((e as Error).message)
+        return
+      }
       if (cfg.auth === "iam") {
         const token = localStorage.getItem(ACCESS_TOKEN_KEY)
         if (cancelled) return
@@ -160,6 +167,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => (mode === null ? null : { mode, authenticated, permissions, loading, error, login, loginWithToken, logout }),
     [mode, authenticated, permissions, loading, error, login, loginWithToken, logout],
   )
+
+  // The server didn't answer GET /api/v1/config: say so, don't guess a mode.
+  if (unreachable) {
+    return (
+      <div className="flex min-h-svh flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-sm text-muted-foreground">{unreachable}. Is it running?</p>
+        <button className="text-sm underline" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+      </div>
+    )
+  }
 
   // Nothing to show until we know the mode and whether we're signed in.
   if (value === null) return null
