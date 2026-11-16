@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-19 | Last verified: 2026-09-19 -->
+<!-- Last updated: 2026-11-15 | Last verified: 2026-11-15 -->
 
 # AGENTS.md
 
@@ -18,11 +18,13 @@
 | Test (single pkg) | `go test -v ./internal/path/to/pkg/...` | ~2s (unit) / ~1-2s per container (integration) |
 | Test (all — needs Docker) | `go test ./...` or `make test` | ~90-120s |
 | Test (race) | `make test-race` | ~2x plain |
+| Architecture tests | `go test ./internal/architecture/` | <1s |
 | Build | `go build -o bin/server ./cmd/server` | ~5s |
 | Dev server | `make dev` | ongoing |
 | Migrate | `make migrate` | ~2s |
 | Services up | `make up` (docker compose) | ~5s |
-| Full setup | `make init` (.env secrets + jwt-key + build IAMKit from `../iam` + services + migrate + IAMKit provisioning) | ~2-4min first build |
+| Full setup (token mode) | `make init` (.env secrets + admin token + Postgres/Redis + migrate; no IAMKit) | ~10s |
+| Full setup (iam mode) | `make init-iam` (+ build IAMKit from `../iam`, compose profile `iam`, IAMKit provisioning) | ~2-4min first build |
 | Reset stack | `make reset` (drops volumes, `.dev-secrets/`, provisioned IAMKit ids) | ~5s |
 <!-- AGENTS-GENERATED:END commands -->
 
@@ -58,7 +60,7 @@ internal/
   identity/           -> Typed generic IDs (ProviderID, ModelID, MappingID, ModelFallbackID, etc.)
   query/              -> Pagination types: Pagination, Paginated[T] (transport-agnostic)
   httpx/              -> HTTP helpers: PaginationFromCtx (Fiber query params → query.Pagination)
-  server/             -> Fiber server, error middleware, IAMKit auth middleware
+  server/             -> Fiber server, error middleware, Principal + Authenticator port; adapters Open (none), Tokens (token), IAM (iam)
   iamx/               -> IAMKit /api/v1 client: backend service account (ik_svc_), cached machine token, error translation
   provider/           -> LLM provider domain module (providers, models, mappings, fallbacks)
     provider.go       -> Provider entity + Status enum + Create/Update/Filter
@@ -132,17 +134,19 @@ internal/
       webhookpg/        -> Outbound: PostgreSQL repository (configs, deliveries)
     webhooksvc/      -> Service: CRUD + HMAC-signed delivery, SSRF-hardened client, retry worker
     webhookmodule/   -> Assembler: wires repo → svc → handler; StartWorker/Stop lifecycle
-  apikey/            -> API key management: IAMKit service-account passthrough (no local DB)
-    apikey.go        -> APIKey/APIKeyCredential/CreateAPIKey entities
-    ports.go         -> Commands/Queries/Store interfaces (Store = IAMKit adapter)
+  apikey/            -> API key management: local fr_ keys (none/token) or IAMKit service accounts (iam)
+    apikey.go        -> APIKey/APIKeyCredential/CreateAPIKey entities, expiry rules (ExpiryFrom)
+    ports.go         -> Commands/Queries/Store interfaces; LocalStore = Store + Resolve(secret)
     adapters/
       apikeyhttp/    -> Inbound: HTTP handlers (create, list, revoke)
       apikeyiamkit/  -> Outbound: IAMKit /api/v1 adapter via iamx (service accounts)
-    apikeysvc/       -> Service: validate + delegate to IAMKit store
-    apikeymodule/    -> Assembler: wires IAMKit store → svc → handler
+      apikeypg/      -> Outbound: gateway_keys table (sha256 of fr_ secrets)
+    apikeysvc/       -> Service: validate + delegate to store; Resolver = server.KeyResolver over LocalStore
+    apikeymodule/    -> Assembler: New (IAMKit store) / NewLocal (Postgres store + Keys resolver)
+  architecture/      -> Architecture tests (import graph + AST rules; see internal/AGENTS.md)
   testutil/          -> Test-only fixtures: PostgresDB(t)/RedisClient(t) (testcontainers, auto-migrate, auto-cleanup)
 migrations/           -> SQL migrations (run in order)
-docker-compose.yml    -> Postgres 16 + Redis 7 + IAMKit
+docker-compose.yml    -> Postgres 16 + Redis 7 + IAMKit (profile "iam")
 Makefile              -> Dev commands
 ```
 <!-- AGENTS-GENERATED:END filemap -->
@@ -176,9 +180,10 @@ Makefile              -> Dev commands
 | Webhook entity | `internal/webhook/webhook.go` | WebhookConfig/WebhookDelivery/WebhookPayload, event type constants + IsValidEvent |
 | Webhook transport | `internal/webhook/webhooksvc/transport.go` | SSRF-hardened HTTP client: DNS-pinned dial, public-IP allowlist, no redirect follow |
 | Webhook service | `internal/webhook/webhooksvc/service.go` | Config/delivery CRUD, HMAC-SHA256 signing, async Fire, background retry worker |
-| API key entity | `internal/apikey/apikey.go` | APIKey/APIKeyCredential, CreateAPIKey + Validate(), no local DB |
+| API key entity | `internal/apikey/apikey.go` | APIKey/APIKeyCredential, CreateAPIKey + Validate(), shared expiry rules |
+| Authenticator adapter | `internal/server/tokens.go` | Implements `server.Authenticator`: sets a `Principal`, owns its session routes, CSRF on cookie auth |
 | IAMKit adapter (non-DB) | `internal/apikey/adapters/apikeyiamkit/store.go` | Outbound adapter calling IAMKit /api/v1 through `iamx.Client.Do`, errors via `iamx.Translate` |
-| API key module | `internal/apikey/apikeymodule/module.go` | No DB, no migration — IAMKit-backed assembler |
+| API key module | `internal/apikey/apikeymodule/module.go` | Two assemblers for one port: IAMKit-backed `New`, Postgres-backed `NewLocal` |
 <!-- AGENTS-GENERATED:END golden-samples -->
 
 ## Utilities (check before creating new)
@@ -190,10 +195,11 @@ Makefile              -> Dev commands
 | Parse pagination from request | `httpx.PaginationFromCtx(c)` | `internal/httpx/pagination.go` |
 | Application error | `errx.Validation(msg)` etc. | `internal/errx/common.go` |
 | Error wrapping | `errx.Wrap(err, msg, type)` | `internal/errx/error.go` |
-| IAMKit auth | `server.AuthMiddleware(...)` | `internal/server/auth.go` |
+| Authenticate a route group | `c.Auth.Authenticate()` (the mode's `server.Authenticator`) | `internal/bootstrap/container.go` |
 | Call IAMKit /api/v1 (users, roles, service accounts) | `iamx.Client.Do(ctx, fn)` + `iamx.Translate(err, op)` | `internal/iamx/client.go` |
-| Permission check | `server.RequirePermissions(...)` | `internal/server/auth.go` |
-| Get JWT claims | `server.Claims(c)` | `internal/server/auth.go` |
+| Permission check | `server.RequirePermissions(...)` | `internal/server/principal.go` |
+| Get the caller (subject + permissions) | `server.Caller(c)` | `internal/server/principal.go` |
+| Permissions of the local owner (none mode, admin token) | `server.LocalPermissions()` | `internal/server/permissions.go` |
 | Token encryption | `providerkeyinfra.NewEncryptor(hexKey)` | `internal/providerkey/adapters/providerkeyinfra/encryptor.go` |
 | Config loading | `config.Load()` | `internal/config/config.go` |
 | Provider profile | `gateway.GetProfile(slug)` | `internal/gateway/profiles.go` |
@@ -225,7 +231,8 @@ Makefile              -> Dev commands
 | New error kind | Use `errx.Validation/NotFound/Conflict/...` — never bare `errors.New` |
 | Repo wraps DB error | Use `errx.Wrap(err, msg, errx.TypeInternal)` — detect pq unique violations as Conflict |
 | Cross-module dependency | Pass interface (Commands/Queries) through module Deps, never concrete types |
-| Auth on a route | Add `server.AuthMiddleware(...)` to group, then `server.RequirePermissions(...)` per route |
+| Auth on a route | Add `authenticate` (`c.Auth.Authenticate()`) to the group, then `server.RequirePermissions(...)` per route; read the caller with `server.Caller(c)`, never IAMKit claims |
+| Feature needs IAMKit (users, roles) | Register it only when `cfg.Auth.Mode == config.AuthIAM`; other modes 404 |
 | Adding dependency | Ask first — we minimize deps |
 | Unsure about pattern | Check Golden Samples above |
 <!-- AGENTS-GENERATED:END heuristics -->
@@ -258,18 +265,26 @@ Find(ctx context.Context, provider identity.ProviderID) (Provider, error)
 Find(ctx context.Context, providerID identity.ProviderID) (Provider, error)
 ```
 
-### Auth: IAMKit
-- IAMKit runs as a sidecar Docker container, handles all IAM
-- JWT validation via online introspection (`authclient.Introspect`)
-- Permissions checked via `fiberauth.RequirePermissions`
+### Auth: modes (`FREEROUTER_AUTH`)
+- One port, three adapters, chosen once in `Container.initAuth`: `server.Authenticator` (`Authenticate()` middleware + `Session()` routes). Handlers only see `server.Principal` via `server.Caller(c)`
+- `none` → `server.Open`: no login, loopback listen + loopback `Host` only, rejects forwarding headers and browser requests from any other origin except loopback `CORS_ALLOWED_ORIGINS` (`Open.ConsoleOrigins`); principal `local` with `LocalPermissions()` (everything except `users:*`/`roles:*`). `fr_` keys, if sent, are enforced
+- `token` → `server.Tokens`: `FREEROUTER_ADMIN_TOKEN` (≥32 chars, wrong guesses throttled per IP) as bearer/`X-Api-Key`, or the HMAC session cookie `freerouter_session` (HttpOnly, SameSite=Strict, 12h, CSRF via same-origin check on unsafe methods). Gateway keys are local `fr_` keys (`gateway_keys`, sha256); a key can neither grant permissions nor an expiry beyond its own
+- `iam` → `server.IAM`: everything below
+- Unset: `iam` if `IAMKIT_ENVIRONMENT_ID` is set, else `token`. `config.Validate()` checks per mode; IAMKit config is only required in `iam`
+- `GET /api/v1/config` (public) tells the console the mode and, in `iam`, the IAMKit boundary; `/api/v1/session` exists only when the mode has sessions
+- `/api/v1/access` (users/roles) exists only in `iam`
 - No billing/payment — open-source, free
+
+### Auth: IAMKit (`iam` mode)
+- IAMKit runs as a sidecar Docker container (compose profile `iam`), handles all IAM
+- JWT validation via online introspection (`authclient.Introspect`); `ik_svc_` secrets exchanged for cached machine tokens
 - Backend calls to IAMKit use `IAMKIT_SERVICE_SECRET`: an `ik_svc_` service account on the environment's IAM resource with only the `iam:*` permissions in `scripts/permissions.sh` (via `iamx`). Never a management key (`ik_mgmt_`, rejected at startup). Its `iam:roles:*` is environment-wide, so `accesssvc`/`apikeysvc` filter to FreeRouter's resource and organization — keep that boundary when adding operations
 - Boundaries (issuer, audience, environment, application, resource) come only from config; startup fails if any is missing
 - IAMKit runs built from `IAMKIT_SRC` (default `../iam`); keep it at the commit pinned in `go.mod`
 
 ## Key Decisions
 <!-- AGENTS-GENERATED:START key-decisions -->
-- **IAMKit for auth** — no home-grown IAM; all auth/users/orgs/roles delegated to IAMKit
+- **Auth modes** — `none`/`token` for running without IAMKit (single admin token, no users/roles), `iam` delegates users/orgs/roles to IAMKit; no home-grown user management
 - **No billing** — open-source and free, no Stripe, no wallets, no credit balances
 - **Fiber v2** — HTTP framework
 - **sqlx + raw SQL** — no ORM; migrations are plain .sql files
@@ -327,16 +342,18 @@ Find(ctx context.Context, providerID identity.ProviderID) (Provider, error)
 | Evaluator | Gateway-facing check: `CheckMessages` runs before routing a request |
 | Module | A self-contained domain package with ports/adapters/svc/module |
 | Assembler | The `*module` package that wires concrete types |
-| IAMKit | External identity service running as Docker sidecar |
+| IAMKit | External identity service running as Docker sidecar (iam mode) |
 | errx | The typed error system — the only way to create application errors |
 | identity | The typed ID system — compile-time safe entity identifiers |
 | Container | DI composition root in `internal/bootstrap/` (not Docker) |
 | WebhookConfig | A subscription: URL + event types + HMAC secret |
 | WebhookDelivery | A single delivery attempt record with retry/backoff state |
 | Dispatcher | Gateway-facing hook: `Fire(event, data)` enqueues async delivery |
-| APIKey | A FreeRouter-managed API key for gateway access, backed by IAMKit service accounts |
-| APIKeyCredential | One-time response from API key creation containing the `ik_svc_...` secret |
-| Store (apikey) | Adapter interface abstracting IAMKit service accounts (scoped /api/v1) |
+| APIKey | A FreeRouter-managed API key for gateway access: local `fr_` key or IAMKit service account |
+| APIKeyCredential | One-time response from API key creation containing the `fr_...` / `ik_svc_...` secret |
+| Store (apikey) | Adapter interface: IAMKit service accounts (`apikeyiamkit`) or the `gateway_keys` table (`apikeypg`) |
+| Principal | The authenticated caller: subject + permissions, set by the Authenticator |
+| Authenticator | Port for the auth mode: `Open` (none), `Tokens` (token), `IAM` (iam) |
 
 ## Scoped AGENTS.md (MUST read when working in these directories)
 <!-- AGENTS-GENERATED:START scope-index -->
