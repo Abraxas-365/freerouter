@@ -17,6 +17,7 @@ cd "$ROOT"
 
 export COMPOSE_PROJECT_NAME=frv2e2e
 export COMPOSE_FILE="$ROOT/docker-compose.yml:$ROOT/e2e/docker-compose.e2e.yml"
+export COMPOSE_PROFILES=iam
 
 # ── Ports (override with env) ─────────────────────────────────────────
 E2E_DB_PORT=${E2E_DB_PORT:-25432}
@@ -89,6 +90,8 @@ if [[ ! -f "$ENV" ]]; then
   set_env OIDC_HMAC_SECRET "$(openssl rand -hex 32)"
   set_env IAMKIT_ENCRYPTION_KEY "$(openssl rand -base64 32)"
 fi
+# The e2e stack exercises the IAMKit auth mode (also for existing .run/.env).
+grep -q '^FREEROUTER_AUTH=' "$ENV" || printf 'FREEROUTER_AUTH=iam\n' >> "$ENV"
 [[ -f secrets/jwt.pem ]] || make -s jwt-key
 
 set -a; source "$ENV"; set +a

@@ -2,7 +2,8 @@
 secrets/
 .dev-secrets/
 .env
-
+.env.*
+!.env.example
 # Build
 bin/
 
