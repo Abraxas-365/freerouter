@@ -1,4 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
+import { toast } from "sonner"
 import type { LucideIcon } from "lucide-react"
 import {
   LayoutDashboard, Server, Box, Key, Gauge, BarChart3, Shield, Webhook, LogOut, KeyRound, Users,
@@ -55,7 +56,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
-  const { logout } = useAuth()
+  const { logout, mode } = useAuth()
   const perms = usePermissions()
 
   return (
@@ -118,12 +119,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         <SidebarFooter>
           <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton onClick={() => logout()}>
-                <LogOut className="h-4 w-4" />
-                <span>Sign out</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
+            {mode !== "none" && (
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => logout().catch((e: Error) => toast.error(e.message))}>
+                  <LogOut className="h-4 w-4" />
+                  <span>Sign out</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
           </SidebarMenu>
         </SidebarFooter>
 

@@ -1,4 +1,4 @@
-const ACCESS_TOKEN_KEY = "access_token"
+import { useAuth } from "@/hooks/use-auth"
 
 /** Permission constants — keep in sync with server/permissions.go */
 export const P = {
@@ -27,20 +27,8 @@ export const P = {
   RolesWrite:          "freerouter:roles:write",
 } as const
 
-/** Decode the JWT payload without verification (validation happens server-side). */
-function decodePayload(token: string): Record<string, unknown> | null {
-  try {
-    const parts = token.split(".")
-    if (parts.length !== 3) return null
-    const payload = atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))
-    return JSON.parse(payload)
-  } catch {
-    return null
-  }
-}
-
 export interface Permissions {
-  /** All permissions from the JWT as a Set for O(1) lookup. */
+  /** All permissions of the principal as a Set for O(1) lookup. */
   set: Set<string>
   /** Returns true if the user has the given permission. */
   has: (perm: string) => boolean
@@ -51,21 +39,11 @@ export interface Permissions {
 }
 
 /**
- * Decodes the stored access token and returns a permission checker.
- * Safe to call when unauthenticated — returns an empty set.
- * Re-evaluates on re-mount (login/logout causes remount via AuthProvider).
+ * Permission checker for the signed-in principal: the IAMKit token's
+ * permissions (iam mode) or the session's (token/none modes).
  */
 export function usePermissions(): Permissions {
-  const token = localStorage.getItem(ACCESS_TOKEN_KEY)
-  if (!token) return empty()
-
-  const payload = decodePayload(token)
-  if (!payload) return empty()
-
-  const perms = Array.isArray(payload.permissions)
-    ? new Set<string>(payload.permissions as string[])
-    : new Set<string>()
-
+  const { permissions: perms } = useAuth()
   return {
     set: perms,
     has: (p: string) => perms.has(p),
@@ -74,7 +52,3 @@ export function usePermissions(): Permissions {
   }
 }
 
-function empty(): Permissions {
-  const s = new Set<string>()
-  return { set: s, has: () => false, hasAll: () => false, hasAny: () => false }
-}

@@ -1,27 +1,14 @@
 /**
- * IAMKit environment/application/resource boundary configuration.
+ * IAMKit sign-in for FREEROUTER_AUTH=iam.
  *
- * FreeRouter does not host its own IAM — it delegates all authentication
- * to an IAMKit sidecar (see `docker-compose.yml`, `internal/server/auth.go`).
  * The console talks to IAMKit's `/identity/v1` API directly to obtain a JWT,
- * then sends that JWT as a Bearer token to the FreeRouter API.
- *
- * These IDs are created once via IAMKit's management API when the deployment
- * is set up (see `make iamkit-logs` and the IAMKit docs) and must match the
- * `IAMKIT_ENVIRONMENT_ID` / `IAMKIT_APPLICATION_ID` / `IAMKIT_RESOURCE_ID`
- * values configured on the FreeRouter server (`.env`).
+ * then sends that JWT as a Bearer token to the FreeRouter API. The IAMKit
+ * URL and boundary (environment/organization/application/resource/audience)
+ * come from the server at runtime (`GET /api/v1/config`, see
+ * `runtime-config.ts`), so they always match the server's `IAMKIT_*` values.
  */
 
-export const IAMKIT_URL = (import.meta.env.VITE_IAMKIT_URL as string | undefined) ?? "http://localhost:8080"
-
-export const IAMKIT_BOUNDARY = {
-  environment_id: (import.meta.env.VITE_IAMKIT_ENVIRONMENT_ID as string | undefined) ?? "",
-  organization_id: (import.meta.env.VITE_IAMKIT_ORGANIZATION_ID as string | undefined) ?? "",
-  application_id: (import.meta.env.VITE_IAMKIT_APPLICATION_ID as string | undefined) ?? "",
-  resource_id: (import.meta.env.VITE_IAMKIT_RESOURCE_ID as string | undefined) ?? "",
-}
-
-export const IAMKIT_AUDIENCE = (import.meta.env.VITE_IAMKIT_AUDIENCE as string | undefined) ?? ""
+import { runtimeConfig, type IAMKitConfig } from "@/lib/runtime-config"
 
 export interface TokenPair {
   access_token: string
@@ -30,10 +17,26 @@ export interface TokenPair {
   expires_in: number
 }
 
+function iamkit(): IAMKitConfig {
+  const cfg = runtimeConfig().iamkit
+  if (!cfg) throw new Error("IAMKit is not configured on this server")
+  return cfg
+}
+
+function boundary() {
+  const c = iamkit()
+  return {
+    environment_id: c.environment_id,
+    organization_id: c.organization_id,
+    application_id: c.application_id,
+    resource_id: c.resource_id,
+  }
+}
+
 async function iamRequest<T>(path: string, body: unknown, token?: string): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" }
   if (token) headers["Authorization"] = `Bearer ${token}`
-  const res = await fetch(`${IAMKIT_URL}/identity/v1${path}`, {
+  const res = await fetch(`${iamkit().url}/identity/v1${path}`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -46,20 +49,13 @@ async function iamRequest<T>(path: string, body: unknown, token?: string): Promi
   return res.json()
 }
 
-/** Logs in against IAMKit with the configured environment/application/resource boundary. */
+/** Logs in against IAMKit with the server's environment/application/resource boundary. */
 export function login(email: string, password: string): Promise<TokenPair> {
-  return iamRequest<TokenPair>("/login", {
-    ...IAMKIT_BOUNDARY,
-    email,
-    password,
-  })
+  return iamRequest<TokenPair>("/login", { ...boundary(), email, password })
 }
 
 export function refresh(refreshToken: string): Promise<TokenPair> {
-  return iamRequest<TokenPair>("/refresh", {
-    ...IAMKIT_BOUNDARY,
-    refresh_token: refreshToken,
-  })
+  return iamRequest<TokenPair>("/refresh", { ...boundary(), refresh_token: refreshToken })
 }
 
 /** Revokes the current session at IAMKit. Requires the still-live access token. */
@@ -68,8 +64,8 @@ export async function logout(): Promise<void> {
   if (!accessToken) return
   try {
     await iamRequest("/logout", {
-      environment_id: IAMKIT_BOUNDARY.environment_id,
-      audience: IAMKIT_AUDIENCE,
+      environment_id: iamkit().environment_id,
+      audience: iamkit().audience,
     }, accessToken)
   } catch {
     // best-effort — the tokens are cleared locally regardless
